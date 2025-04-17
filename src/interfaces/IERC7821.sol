@@ -9,10 +9,7 @@ interface IERC7821 {
         bytes data;
     }
 
-    function execute(
-        bytes32 mode,
-        bytes calldata executionData
-    ) external payable;
+    function execute(bytes32 mode, bytes calldata executionData) external payable;
 
     function supportsExecutionMode(bytes32 mode) external view returns (bool);
 }

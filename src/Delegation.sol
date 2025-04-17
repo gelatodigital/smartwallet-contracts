@@ -3,7 +3,13 @@ pragma solidity ^0.8.29;
 
 import {IERC7821} from "./interfaces/IERC7821.sol";
 import {IERC1271} from "./interfaces/IERC1271.sol";
-import {CALL_TYPE_BATCH, EXEC_TYPE_DEFAULT, EXEC_MODE_DEFAULT, EXEC_MODE_OP_DATA, ENTRY_POINT_V8} from "./types/Constants.sol";
+import {
+    CALL_TYPE_BATCH,
+    EXEC_TYPE_DEFAULT,
+    EXEC_MODE_DEFAULT,
+    EXEC_MODE_OP_DATA,
+    ENTRY_POINT_V8
+} from "./types/Constants.sol";
 
 // TODO: also implement IERC4337 for `validateUserOperation`.
 contract Delegation is IERC7821, IERC1271 {
@@ -13,16 +19,8 @@ contract Delegation is IERC7821, IERC1271 {
     error UnsupportedExecutionMode();
     error Unauthorized();
 
-    function execute(
-        bytes32 mode,
-        bytes calldata executionData
-    ) external payable {
-        (
-            bytes1 callType,
-            bytes1 execType,
-            bytes4 modeSelector,
-
-        ) = _decodeExecutionMode(mode);
+    function execute(bytes32 mode, bytes calldata executionData) external payable {
+        (bytes1 callType, bytes1 execType, bytes4 modeSelector,) = _decodeExecutionMode(mode);
 
         if (callType != CALL_TYPE_BATCH || execType != EXEC_TYPE_DEFAULT) {
             revert UnsupportedExecutionMode();
@@ -57,43 +55,36 @@ contract Delegation is IERC7821, IERC1271 {
     }
 
     // TODO: add methods for adding/removing authorized passkeys.
-    // These methods should be gated by `onlyThis` but can be invoked through `execute` calling back into this.
+    // These methods should be gated by `onlyThis` but can be invoked through `execute` calling back
+    // into this.
 
     // TODO: add test for this method.
     function supportsExecutionMode(bytes32 mode) external pure returns (bool) {
-        (
-            bytes1 callType,
-            bytes1 execType,
-            bytes4 modeSelector,
-
-        ) = _decodeExecutionMode(mode);
+        (bytes1 callType, bytes1 execType, bytes4 modeSelector,) = _decodeExecutionMode(mode);
 
         if (callType != CALL_TYPE_BATCH || execType != EXEC_TYPE_DEFAULT) {
             return false;
         }
 
-        if (
-            modeSelector != EXEC_MODE_DEFAULT &&
-            modeSelector != EXEC_MODE_OP_DATA
-        ) {
+        if (modeSelector != EXEC_MODE_DEFAULT && modeSelector != EXEC_MODE_OP_DATA) {
             return false;
         }
 
         return true;
     }
 
-    function isValidSignature(
-        bytes32 hash,
-        bytes memory signature
-    ) external view returns (bytes4) {
+    function isValidSignature(bytes32 hash, bytes memory signature)
+        external
+        view
+        returns (bytes4)
+    {
         // TODO
     }
 
     function _execute(Call[] memory calls) private {
         for (uint256 i = 0; i < calls.length; i++) {
-            (bool success, bytes memory data) = calls[i].to.call{
-                value: calls[i].value
-            }(calls[i].data);
+            (bool success, bytes memory data) =
+                calls[i].to.call{value: calls[i].value}(calls[i].data);
 
             if (!success) {
                 assembly {
@@ -103,17 +94,10 @@ contract Delegation is IERC7821, IERC1271 {
         }
     }
 
-    function _decodeExecutionMode(
-        bytes32 mode
-    )
+    function _decodeExecutionMode(bytes32 mode)
         private
         pure
-        returns (
-            bytes1 calltype,
-            bytes1 execType,
-            bytes4 modeSelector,
-            bytes22 modePayload
-        )
+        returns (bytes1 calltype, bytes1 execType, bytes4 modeSelector, bytes22 modePayload)
     {
         // https://eips.ethereum.org/EIPS/eip-7579
         // https://eips.ethereum.org/EIPS/eip-7821
