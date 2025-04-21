@@ -10,14 +10,35 @@ import {
     EXEC_MODE_OP_DATA,
     ENTRY_POINT_V8
 } from "./types/Constants.sol";
+import {EIP712} from "lib/solady/src/utils/EIP712.sol";
+import {P256} from "lib/solady/src/utils/P256.sol";
+import {WebAuthn} from "lib/solady/src/utils/WebAuthn.sol";
 
 // TODO: also implement IERC4337 for `validateUserOperation`.
-contract Delegation is IERC7821, IERC1271 {
-    // TODO: use namespaced storage layout.
-    // https://eips.ethereum.org/EIPS/eip-7201
-
+contract Delegation is IERC7821, IERC1271, EIP712 {
     error UnsupportedExecutionMode();
     error Unauthorized();
+
+    // https://eips.ethereum.org/EIPS/eip-7201
+    /// @custom:storage-location erc7201:delegation.storage
+    struct Storage {
+        uint256 nonce;
+        mapping(bytes32 => bytes) pubkey;
+    }
+
+    // keccak256(abi.encode(uint256(keccak256("delegation.storage")) - 1)) &
+    // ~bytes32(uint256(0xff));
+    bytes32 private constant STORAGE_LOCATION =
+        0xf2a7602a6b0fea467fdf81ac322504e60523f80eb506a1ca5e0f3e0d2ac70500;
+
+    // keccak256("Execute(bytes32 mode,Call[] calls,uint256 nonce)Call(address to,uint256
+    // value,bytes data)")
+    bytes32 private constant EXECUTE_TYPEHASH =
+        0xdf21343e200fb58137ad2784f9ea58605ec77f388015dc495486275b8eec47da;
+
+    // keccak256("Call(address to,uint256 value,bytes data)")
+    bytes32 private constant CALL_TYPEHASH =
+        0x9085b19ea56248c94d86174b3784cfaaa8673d1041d6441f61ff52752dac8483;
 
     function execute(bytes32 mode, bytes calldata executionData) external payable {
         (bytes1 callType, bytes1 execType, bytes4 modeSelector,) = _decodeExecutionMode(mode);
@@ -43,14 +64,13 @@ contract Delegation is IERC7821, IERC1271 {
             // If `opData` is not empty, the implementation SHOULD use the signature encoded in
             // `opData` to determine if the caller can perform the execution.
             // If `opData` is not empty, `executionData` is `abi.encode(calls, opData)`.
+            (Call[] memory calls, bytes memory opData) = abi.decode(executionData, (Call[], bytes));
 
-            /*(Call[] memory calls, bytes memory opData) = abi.decode(
-                executionData,
-                (Call[], bytes)
-            );*/
+            bytes32 digest = _computeDigest(mode, calls, _getStorage().nonce++);
 
-            // TODO: Check passkey, for now we just revert.
-            revert Unauthorized();
+            if (!_verifySignature(digest, opData)) {
+                revert Unauthorized();
+            }
         }
     }
 
@@ -73,12 +93,9 @@ contract Delegation is IERC7821, IERC1271 {
         return true;
     }
 
-    function isValidSignature(bytes32 hash, bytes memory signature)
-        external
-        view
-        returns (bytes4)
-    {
-        // TODO
+    function isValidSignature(bytes32 digest, bytes memory data) external view returns (bytes4) {
+        // https://eips.ethereum.org/EIPS/eip-1271
+        return _verifySignature(digest, data) ? bytes4(0x1626ba7e) : bytes4(0xffffffff);
     }
 
     function _execute(Call[] memory calls) private {
@@ -91,6 +108,42 @@ contract Delegation is IERC7821, IERC1271 {
                     revert(add(data, 0x20), mload(data))
                 }
             }
+        }
+    }
+
+    function _verifySignature(bytes32 digest, bytes memory data) private view returns (bool) {
+        (bytes32 keyHash, bytes memory signature) = abi.decode(data, (bytes32, bytes));
+
+        bytes memory pubkey = _getStorage().pubkey[keyHash];
+
+        (bytes32 x, bytes32 y) = P256.tryDecodePoint(pubkey);
+
+        return WebAuthn.verify(abi.encode(digest), false, WebAuthn.tryDecodeAuth(signature), x, y);
+    }
+
+    function _computeDigest(bytes32 mode, Call[] memory calls, uint256 nonce)
+        private
+        view
+        returns (bytes32)
+    {
+        // TODO: use EfficientHashLib
+        bytes32[] memory callsHashes = new bytes32[](calls.length);
+        for (uint256 i = 0; i < calls.length; i++) {
+            callsHashes[i] = keccak256(
+                abi.encode(CALL_TYPEHASH, calls[i].to, calls[i].value, keccak256(calls[i].data))
+            );
+        }
+
+        bytes32 executeHash = keccak256(
+            abi.encode(EXECUTE_TYPEHASH, mode, keccak256(abi.encodePacked(callsHashes)), nonce)
+        );
+
+        return _hashTypedData(executeHash);
+    }
+
+    function _getStorage() private pure returns (Storage storage $) {
+        assembly {
+            $.slot := STORAGE_LOCATION
         }
     }
 
@@ -107,5 +160,15 @@ contract Delegation is IERC7821, IERC1271 {
             modeSelector := shl(48, mode)
             modePayload := shl(80, mode)
         }
+    }
+
+    function _domainNameAndVersion()
+        internal
+        pure
+        override
+        returns (string memory name, string memory version)
+    {
+        name = "Delegation";
+        version = "0.0.1";
     }
 }
