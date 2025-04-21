@@ -17,6 +17,7 @@ import {WebAuthn} from "lib/solady/src/utils/WebAuthn.sol";
 // TODO: also implement IERC4337 for `validateUserOperation`.
 contract Delegation is IERC7821, IERC1271, EIP712 {
     error UnsupportedExecutionMode();
+    error InvalidCaller();
     error Unauthorized();
 
     // https://eips.ethereum.org/EIPS/eip-7201
@@ -39,6 +40,13 @@ contract Delegation is IERC7821, IERC1271, EIP712 {
     // keccak256("Call(address to,uint256 value,bytes data)")
     bytes32 private constant CALL_TYPEHASH =
         0x9085b19ea56248c94d86174b3784cfaaa8673d1041d6441f61ff52752dac8483;
+
+    modifier onlyThis() {
+        if (msg.sender != address(this)) {
+            revert InvalidCaller();
+        }
+        _;
+    }
 
     function execute(bytes32 mode, bytes calldata executionData) external payable {
         (bytes1 callType, bytes1 execType, bytes4 modeSelector,) = _decodeExecutionMode(mode);
@@ -96,6 +104,15 @@ contract Delegation is IERC7821, IERC1271, EIP712 {
     function isValidSignature(bytes32 digest, bytes memory data) external view returns (bytes4) {
         // https://eips.ethereum.org/EIPS/eip-1271
         return _verifySignature(digest, data) ? bytes4(0x1626ba7e) : bytes4(0xffffffff);
+    }
+
+    function addSigner(bytes calldata pubkey) external onlyThis {
+        bytes32 keyHash = keccak256(pubkey);
+        _getStorage().pubkey[keyHash] = pubkey;
+    }
+
+    function removeSigner(bytes32 keyHash) external onlyThis {
+        delete _getStorage().pubkey[keyHash];
     }
 
     function _execute(Call[] memory calls) private {
