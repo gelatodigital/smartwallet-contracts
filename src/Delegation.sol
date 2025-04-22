@@ -112,9 +112,13 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         return true;
     }
 
-    function isValidSignature(bytes32 digest, bytes calldata data) external view returns (bytes4) {
+    function isValidSignature(bytes32 digest, bytes calldata signature)
+        external
+        view
+        returns (bytes4)
+    {
         // https://eips.ethereum.org/EIPS/eip-1271
-        return _verifySignature(digest, data) ? bytes4(0x1626ba7e) : bytes4(0xffffffff);
+        return _verifySignature(digest, signature) ? bytes4(0x1626ba7e) : bytes4(0xffffffff);
     }
 
     function validateUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash, uint256)
