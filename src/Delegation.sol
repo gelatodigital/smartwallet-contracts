@@ -3,6 +3,7 @@ pragma solidity ^0.8.29;
 
 import {IERC7821} from "./interfaces/IERC7821.sol";
 import {IERC1271} from "./interfaces/IERC1271.sol";
+import {IERC4337} from "./interfaces/IERC4337.sol";
 import {
     CALL_TYPE_BATCH,
     EXEC_TYPE_DEFAULT,
@@ -14,8 +15,7 @@ import {EIP712} from "solady/utils/EIP712.sol";
 import {P256} from "solady/utils/P256.sol";
 import {WebAuthn} from "solady/utils/WebAuthn.sol";
 
-// TODO: also implement IERC4337 for `validateUserOperation`.
-contract Delegation is IERC7821, IERC1271, EIP712 {
+contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
     error UnsupportedExecutionMode();
     error InvalidCaller();
     error Unauthorized();
@@ -115,6 +115,15 @@ contract Delegation is IERC7821, IERC1271, EIP712 {
     function isValidSignature(bytes32 digest, bytes calldata data) external view returns (bytes4) {
         // https://eips.ethereum.org/EIPS/eip-1271
         return _verifySignature(digest, data) ? bytes4(0x1626ba7e) : bytes4(0xffffffff);
+    }
+
+    function validateUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash, uint256)
+        external
+        view
+        returns (uint256)
+    {
+        // https://eips.ethereum.org/EIPS/eip-4337
+        return _verifySignature(userOpHash, userOp.signature) ? 0 : 1;
     }
 
     function addSigner(bytes calldata pubkey) external onlyThis {
