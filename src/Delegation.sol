@@ -67,6 +67,7 @@ contract Delegation is IERC7821, IERC1271, EIP712 {
 
             // If `opData` is empty, `executionData` is simply `abi.encode(calls)`.
             Call[] memory calls = abi.decode(executionData, (Call[]));
+
             _execute(calls);
         } else {
             // If `opData` is not empty, the implementation SHOULD use the signature encoded in
@@ -79,14 +80,11 @@ contract Delegation is IERC7821, IERC1271, EIP712 {
             if (!_verifySignature(digest, opData)) {
                 revert Unauthorized();
             }
+
+            _execute(calls);
         }
     }
 
-    // TODO: add methods for adding/removing authorized passkeys.
-    // These methods should be gated by `onlyThis` but can be invoked through `execute` calling back
-    // into this.
-
-    // TODO: add test for this method.
     function supportsExecutionMode(bytes32 mode) external pure returns (bool) {
         (bytes1 callType, bytes1 execType, bytes4 modeSelector,) = _decodeExecutionMode(mode);
 
@@ -135,7 +133,9 @@ contract Delegation is IERC7821, IERC1271, EIP712 {
 
         (bytes32 x, bytes32 y) = P256.tryDecodePoint(pubkey);
 
-        return WebAuthn.verify(abi.encode(digest), false, WebAuthn.tryDecodeAuth(signature), x, y);
+        return WebAuthn.verify(
+            abi.encode(digest), false, WebAuthn.tryDecodeAuthCompact(signature), x, y
+        );
     }
 
     function _computeDigest(bytes32 mode, Call[] memory calls, uint256 nonce)
