@@ -10,9 +10,9 @@ import {
     EXEC_MODE_OP_DATA,
     ENTRY_POINT_V8
 } from "./types/Constants.sol";
-import {EIP712} from "lib/solady/src/utils/EIP712.sol";
-import {P256} from "lib/solady/src/utils/P256.sol";
-import {WebAuthn} from "lib/solady/src/utils/WebAuthn.sol";
+import {EIP712} from "solady/utils/EIP712.sol";
+import {P256} from "solady/utils/P256.sol";
+import {WebAuthn} from "solady/utils/WebAuthn.sol";
 
 // TODO: also implement IERC4337 for `validateUserOperation`.
 contract Delegation is IERC7821, IERC1271, EIP712 {
@@ -55,6 +55,15 @@ contract Delegation is IERC7821, IERC1271, EIP712 {
             revert UnsupportedExecutionMode();
         }
 
+        // If `opData` is empty, `executionData` is simply `abi.encode(calls)`.
+        // We decode this from calldata rather than abi.decode which avoids a memory copy
+        Call[] calldata calls;
+        assembly {
+            let offset := add(executionData.offset, calldataload(executionData.offset))
+            calls.offset := add(offset, 0x20)
+            calls.length := calldataload(offset)
+        }
+
         if (modeSelector == EXEC_MODE_DEFAULT) {
             // https://eips.ethereum.org/EIPS/eip-7821
             // If `opData` is empty, the implementation SHOULD require that `msg.sender ==
@@ -65,18 +74,22 @@ contract Delegation is IERC7821, IERC1271, EIP712 {
                 revert Unauthorized();
             }
 
-            // If `opData` is empty, `executionData` is simply `abi.encode(calls)`.
-            Call[] memory calls = abi.decode(executionData, (Call[]));
-
             _execute(calls);
         } else {
-            // If `opData` is not empty, the implementation SHOULD use the signature encoded in
-            // `opData` to determine if the caller can perform the execution.
             // If `opData` is not empty, `executionData` is `abi.encode(calls, opData)`.
-            (Call[] memory calls, bytes memory opData) = abi.decode(executionData, (Call[], bytes));
+            // We decode this from calldata rather than abi.decode which avoids a memory copy
+            bytes calldata opData;
+            assembly {
+                let offset :=
+                    add(executionData.offset, calldataload(add(executionData.offset, 0x20)))
+                opData.offset := add(offset, 0x20)
+                opData.length := calldataload(offset)
+            }
 
             bytes32 digest = _computeDigest(mode, calls, _getStorage().nonce++);
 
+            // If `opData` is not empty, the implementation SHOULD use the signature encoded in
+            // `opData` to determine if the caller can perform the execution.
             if (!_verifySignature(digest, opData)) {
                 revert Unauthorized();
             }
@@ -99,7 +112,7 @@ contract Delegation is IERC7821, IERC1271, EIP712 {
         return true;
     }
 
-    function isValidSignature(bytes32 digest, bytes memory data) external view returns (bytes4) {
+    function isValidSignature(bytes32 digest, bytes calldata data) external view returns (bytes4) {
         // https://eips.ethereum.org/EIPS/eip-1271
         return _verifySignature(digest, data) ? bytes4(0x1626ba7e) : bytes4(0xffffffff);
     }
@@ -113,7 +126,7 @@ contract Delegation is IERC7821, IERC1271, EIP712 {
         delete _getStorage().pubkey[keyHash];
     }
 
-    function _execute(Call[] memory calls) private {
+    function _execute(Call[] calldata calls) private {
         for (uint256 i = 0; i < calls.length; i++) {
             (bool success, bytes memory data) =
                 calls[i].to.call{value: calls[i].value}(calls[i].data);
@@ -126,24 +139,32 @@ contract Delegation is IERC7821, IERC1271, EIP712 {
         }
     }
 
-    function _verifySignature(bytes32 digest, bytes memory data) private view returns (bool) {
-        (bytes32 keyHash, bytes memory signature) = abi.decode(data, (bytes32, bytes));
+    function _verifySignature(bytes32 digest, bytes calldata data) private view returns (bool) {
+        // `data` is `abi.encode(keyHash, signature)`.
+        bytes32 keyHash;
+        bytes calldata signature;
+        assembly {
+            keyHash := calldataload(data.offset)
 
-        bytes memory pubkey = _getStorage().pubkey[keyHash];
+            let offset := add(data.offset, calldataload(add(data.offset, 0x20)))
+            signature.offset := add(offset, 0x20)
+            signature.length := calldataload(offset)
+        }
+
+        bytes storage pubkey = _getStorage().pubkey[keyHash];
 
         (bytes32 x, bytes32 y) = P256.tryDecodePoint(pubkey);
 
         return WebAuthn.verify(
-            abi.encode(digest), false, WebAuthn.tryDecodeAuthCompact(signature), x, y
+            abi.encode(digest), false, WebAuthn.tryDecodeAuthCompactCalldata(signature), x, y
         );
     }
 
-    function _computeDigest(bytes32 mode, Call[] memory calls, uint256 nonce)
+    function _computeDigest(bytes32 mode, Call[] calldata calls, uint256 nonce)
         private
         view
         returns (bytes32)
     {
-        // TODO: use EfficientHashLib
         bytes32[] memory callsHashes = new bytes32[](calls.length);
         for (uint256 i = 0; i < calls.length; i++) {
             callsHashes[i] = keccak256(
