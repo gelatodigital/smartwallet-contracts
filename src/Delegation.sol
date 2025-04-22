@@ -14,6 +14,7 @@ import {
 import {EIP712} from "solady/utils/EIP712.sol";
 import {P256} from "solady/utils/P256.sol";
 import {WebAuthn} from "solady/utils/WebAuthn.sol";
+import {ECDSA} from "solady/utils/ECDSA.sol";
 
 contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
     error UnsupportedExecutionMode();
@@ -152,14 +153,22 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         }
     }
 
-    function _verifySignature(bytes32 digest, bytes calldata data) private view returns (bool) {
+    function _verifySignature(bytes32 digest, bytes calldata signature)
+        private
+        view
+        returns (bool)
+    {
+        // If `signature` length is 64 or 65, treat it as secp256k1 signature
+        if (signature.length == 64 || signature.length == 65) {
+            return ECDSA.recoverCalldata(digest, signature) == address(this);
+        }
+
         // `data` is `abi.encode(keyHash, signature)`.
         bytes32 keyHash;
-        bytes calldata signature;
         assembly {
-            keyHash := calldataload(data.offset)
+            keyHash := calldataload(signature.offset)
 
-            let offset := add(data.offset, calldataload(add(data.offset, 0x20)))
+            let offset := add(signature.offset, calldataload(add(signature.offset, 0x20)))
             signature.offset := add(offset, 0x20)
             signature.length := calldataload(offset)
         }
