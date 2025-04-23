@@ -140,6 +140,10 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         delete _getStorage().pubkey[keyHash];
     }
 
+    function getNonce() external view returns (uint256) {
+        return _getStorage().nonce;
+    }
+
     function _execute(Call[] calldata calls) private {
         for (uint256 i = 0; i < calls.length; i++) {
             (bool success, bytes memory data) =
