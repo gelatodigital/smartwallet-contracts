@@ -108,7 +108,12 @@ contract DelegationTest is Test {
             calls[0].to = address(counter);
             calls[0].data = abi.encodeWithSelector(counter.increment.selector);
 
-            bytes memory opData = abi.encode(keyHash, sig);
+            uint192 key = 0;
+            uint256 nonce = delegation.getNonce(key);
+
+            bytes memory signature = abi.encode(keyHash, sig);
+
+            bytes memory opData = abi.encodePacked(abi.encode(nonce), signature);
 
             Delegation(eoa).execute(mode, abi.encode(calls, opData));
         }
@@ -145,7 +150,12 @@ contract DelegationTest is Test {
             calls[0].to = address(counter);
             calls[0].data = abi.encodeWithSelector(counter.increment.selector);
 
-            bytes memory opData = abi.encode(keyHash, sig);
+            uint192 key = 0;
+            uint256 nonce = delegation.getNonce(key);
+
+            bytes memory signature = abi.encode(keyHash, sig);
+
+            bytes memory opData = abi.encodePacked(abi.encode(nonce), signature);
 
             vm.expectRevert(Delegation.Unauthorized.selector);
             Delegation(eoa).execute(mode, abi.encode(calls, opData));

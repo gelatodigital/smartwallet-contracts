@@ -20,11 +20,13 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
     error UnsupportedExecutionMode();
     error InvalidCaller();
     error Unauthorized();
+    error InvalidNonce();
+    error ExcessiveInvalidation();
 
     // https://eips.ethereum.org/EIPS/eip-7201
     /// @custom:storage-location erc7201:delegation.storage
     struct Storage {
-        uint256 nonce;
+        mapping(uint192 => uint64) nonceSequenceNumber;
         mapping(bytes32 => bytes) pubkey;
     }
 
@@ -87,11 +89,26 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
                 opData.length := calldataload(offset)
             }
 
-            bytes32 digest = _computeDigest(mode, calls, _getStorage().nonce++);
+            // Extract nonce from opData - first 32 bytes
+            uint256 nonce;
+            assembly {
+                nonce := calldataload(opData.offset)
+            }
+
+            bytes32 digest = _computeDigest(mode, calls, nonce);
+
+            _validateAndUseNonce(nonce);
+
+            // Verify signature using the rest of opData (excluding the nonce)
+            bytes calldata signature;
+            assembly {
+                signature.offset := add(opData.offset, 32)
+                signature.length := sub(opData.length, 32)
+            }
 
             // If `opData` is not empty, the implementation SHOULD use the signature encoded in
             // `opData` to determine if the caller can perform the execution.
-            if (!_verifySignature(digest, opData)) {
+            if (!_verifySignature(digest, signature)) {
                 revert Unauthorized();
             }
 
@@ -140,8 +157,31 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         delete _getStorage().pubkey[keyHash];
     }
 
-    function getNonce() external view returns (uint256) {
-        return _getStorage().nonce;
+    function getNonce(uint192 key) external view returns (uint256) {
+        Storage storage s = _getStorage();
+        return _encodeNonce(key, s.nonceSequenceNumber[key]);
+    }
+
+    function incrementNonce(uint192 key) external onlyThis {
+        _getStorage().nonceSequenceNumber[key]++;
+    }
+
+    function invalidateNonce(uint256 newNonce) external onlyThis {
+        uint192 key = uint192(newNonce >> 64);
+        uint64 targetSeq = uint64(newNonce);
+        uint64 currentSeq = _getStorage().nonceSequenceNumber[key];
+
+        if (targetSeq <= currentSeq) {
+            revert InvalidNonce();
+        }
+
+        // Limit how many nonces can be invalidated at once
+        unchecked {
+            uint64 delta = targetSeq - currentSeq;
+            if (delta > type(uint16).max) revert ExcessiveInvalidation();
+        }
+
+        _getStorage().nonceSequenceNumber[key] = targetSeq;
     }
 
     function _execute(Call[] calldata calls) private {
@@ -203,6 +243,19 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         );
 
         return _hashTypedData(executeHash);
+    }
+
+    function _validateAndUseNonce(uint256 nonce) private {
+        uint192 key = uint192(nonce >> 64);
+        uint64 seq = uint64(nonce);
+
+        if (_getStorage().nonceSequenceNumber[key]++ != seq) {
+            revert InvalidNonce();
+        }
+    }
+
+    function _encodeNonce(uint192 key, uint64 seq) private pure returns (uint256) {
+        return (uint256(key) << 64) | seq;
     }
 
     function _getStorage() private pure returns (Storage storage $) {
