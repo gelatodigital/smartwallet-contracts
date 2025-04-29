@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.29;
 
+import {console} from "forge-std/console.sol";
 import {Test} from "forge-std/Test.sol";
 import {Counter} from "./Counter.sol";
 import {Delegation} from "../src/Delegation.sol";
@@ -42,6 +43,20 @@ contract DelegationTest is Test {
 
         vm.expectRevert(Delegation.Unauthorized.selector);
         delegation.execute(mode, abi.encode(calls));
+    }
+
+    function testSimulateExecuteECDSA() public {
+        bytes32 mode = 0x0100000000007821000100000000000000000000000000000000000000000000;
+
+        bytes memory sig =
+            hex"32ca70ca3f116dd67d1a14db3e331e2ec3f5c7ed503668403d6c3ccc5b4ac9530f91323c99e986c4767bacf75d73788859b5aae5f451441ec848768e870477761c";
+
+        Delegation.Call[] memory calls = new Delegation.Call[](1);
+        calls[0].to = address(counter);
+        calls[0].data = abi.encodeWithSelector(counter.increment.selector);
+
+        vm.expectPartialRevert(Delegation.SimulationResult.selector);
+        Delegation(eoa).simulateExecute(mode, abi.encode(calls, sig));
     }
 
     function testExecuteOpData() public {

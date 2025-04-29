@@ -18,6 +18,7 @@ import {ECDSA} from "solady/utils/ECDSA.sol";
 
 contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
     error UnsupportedExecutionMode();
+    error SimulationResult(uint256);
     error InvalidCaller();
     error Unauthorized();
 
@@ -49,6 +50,34 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         _;
     }
 
+    function _decodeCalls(bytes calldata executionData)
+        private
+        pure
+        returns (Call[] calldata calls)
+    {
+        // If `opData` is empty, `executionData` is simply `abi.encode(calls)`.
+        // We decode this from calldata rather than abi.decode which avoids a memory copy
+        assembly {
+            let offset := add(executionData.offset, calldataload(executionData.offset))
+            calls.offset := add(offset, 0x20)
+            calls.length := calldataload(offset)
+        }
+    }
+
+    function _decodeOpData(bytes calldata executionData)
+        private
+        pure
+        returns (bytes calldata opData)
+    {
+        // If `opData` is not empty, `executionData` is `abi.encode(calls, opData)`.
+        // We decode this from calldata rather than abi.decode which avoids a memory copy
+        assembly {
+            let offset := add(executionData.offset, calldataload(add(executionData.offset, 0x20)))
+            opData.offset := add(offset, 0x20)
+            opData.length := calldataload(offset)
+        }
+    }
+
     function execute(bytes32 mode, bytes calldata executionData) external payable {
         (bytes1 callType, bytes1 execType, bytes4 modeSelector,) = _decodeExecutionMode(mode);
 
@@ -56,14 +85,7 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
             revert UnsupportedExecutionMode();
         }
 
-        // If `opData` is empty, `executionData` is simply `abi.encode(calls)`.
-        // We decode this from calldata rather than abi.decode which avoids a memory copy
-        Call[] calldata calls;
-        assembly {
-            let offset := add(executionData.offset, calldataload(executionData.offset))
-            calls.offset := add(offset, 0x20)
-            calls.length := calldataload(offset)
-        }
+        Call[] calldata calls = _decodeCalls(executionData);
 
         if (modeSelector == EXEC_MODE_DEFAULT) {
             // https://eips.ethereum.org/EIPS/eip-7821
@@ -77,16 +99,7 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
 
             _execute(calls);
         } else {
-            // If `opData` is not empty, `executionData` is `abi.encode(calls, opData)`.
-            // We decode this from calldata rather than abi.decode which avoids a memory copy
-            bytes calldata opData;
-            assembly {
-                let offset :=
-                    add(executionData.offset, calldataload(add(executionData.offset, 0x20)))
-                opData.offset := add(offset, 0x20)
-                opData.length := calldataload(offset)
-            }
-
+            bytes calldata opData = _decodeOpData(executionData);
             bytes32 digest = _computeDigest(mode, calls, _getStorage().nonce++);
 
             // If `opData` is not empty, the implementation SHOULD use the signature encoded in
@@ -97,6 +110,31 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
 
             _execute(calls);
         }
+    }
+
+    function simulateExecute(bytes32 mode, bytes calldata executionData) external payable {
+        uint256 gas = gasleft();
+
+        (bytes1 callType, bytes1 execType, bytes4 modeSelector,) = _decodeExecutionMode(mode);
+
+        if (callType != CALL_TYPE_BATCH || execType != EXEC_TYPE_DEFAULT) {
+            revert UnsupportedExecutionMode();
+        }
+
+        Call[] calldata calls = _decodeCalls(executionData);
+
+        if (modeSelector == EXEC_MODE_DEFAULT) {
+            _execute(calls);
+        } else {
+            bytes calldata opData = _decodeOpData(executionData);
+            bytes32 digest = _computeDigest(mode, calls, _getStorage().nonce++);
+
+            // Simulation ignores the signature validity
+            _verifySignature(digest, opData);
+            _execute(calls);
+        }
+
+        revert SimulationResult(gas - gasleft());
     }
 
     function supportsExecutionMode(bytes32 mode) external pure returns (bool) {
