@@ -79,61 +79,12 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
     }
 
     function execute(bytes32 mode, bytes calldata executionData) external payable {
-        (bytes1 callType, bytes1 execType, bytes4 modeSelector,) = _decodeExecutionMode(mode);
-
-        if (callType != CALL_TYPE_BATCH || execType != EXEC_TYPE_DEFAULT) {
-            revert UnsupportedExecutionMode();
-        }
-
-        Call[] calldata calls = _decodeCalls(executionData);
-
-        if (modeSelector == EXEC_MODE_DEFAULT) {
-            // https://eips.ethereum.org/EIPS/eip-7821
-            // If `opData` is empty, the implementation SHOULD require that `msg.sender ==
-            // address(this)`.
-            // If `msg.sender` is an authorized entry point, then `execute` MAY accept calls from
-            // the entry point.
-            if (msg.sender != address(this) && msg.sender != ENTRY_POINT_V8) {
-                revert Unauthorized();
-            }
-
-            _execute(calls);
-        } else {
-            bytes calldata opData = _decodeOpData(executionData);
-            bytes32 digest = _computeDigest(mode, calls, _getStorage().nonce++);
-
-            // If `opData` is not empty, the implementation SHOULD use the signature encoded in
-            // `opData` to determine if the caller can perform the execution.
-            if (!_verifySignature(digest, opData)) {
-                revert Unauthorized();
-            }
-
-            _execute(calls);
-        }
+        _execute(mode, executionData, false);
     }
 
     function simulateExecute(bytes32 mode, bytes calldata executionData) external payable {
         uint256 gas = gasleft();
-
-        (bytes1 callType, bytes1 execType, bytes4 modeSelector,) = _decodeExecutionMode(mode);
-
-        if (callType != CALL_TYPE_BATCH || execType != EXEC_TYPE_DEFAULT) {
-            revert UnsupportedExecutionMode();
-        }
-
-        Call[] calldata calls = _decodeCalls(executionData);
-
-        if (modeSelector == EXEC_MODE_DEFAULT) {
-            _execute(calls);
-        } else {
-            bytes calldata opData = _decodeOpData(executionData);
-            bytes32 digest = _computeDigest(mode, calls, _getStorage().nonce++);
-
-            // Simulation ignores the signature validity
-            _verifySignature(digest, opData);
-            _execute(calls);
-        }
-
+        _execute(mode, executionData, true);
         revert SimulationResult(gas - gasleft());
     }
 
@@ -182,7 +133,41 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         return _getStorage().nonce;
     }
 
-    function _execute(Call[] calldata calls) private {
+    function _execute(bytes32 mode, bytes calldata executionData, bool allowUnauthorized) private {
+        (bytes1 callType, bytes1 execType, bytes4 modeSelector,) = _decodeExecutionMode(mode);
+
+        if (callType != CALL_TYPE_BATCH || execType != EXEC_TYPE_DEFAULT) {
+            revert UnsupportedExecutionMode();
+        }
+
+        Call[] calldata calls = _decodeCalls(executionData);
+
+        if (modeSelector == EXEC_MODE_DEFAULT) {
+            // https://eips.ethereum.org/EIPS/eip-7821
+            // If `opData` is empty, the implementation SHOULD require that `msg.sender ==
+            // address(this)`.
+            // If `msg.sender` is an authorized entry point, then `execute` MAY accept calls from
+            // the entry point.
+            if (msg.sender != address(this) && msg.sender != ENTRY_POINT_V8 && !allowUnauthorized) {
+                revert Unauthorized();
+            }
+
+            _executeCalls(calls);
+        } else {
+            bytes calldata opData = _decodeOpData(executionData);
+            bytes32 digest = _computeDigest(mode, calls, _getStorage().nonce++);
+
+            // If `opData` is not empty, the implementation SHOULD use the signature encoded in
+            // `opData` to determine if the caller can perform the execution.
+            if (!_verifySignature(digest, opData) && !allowUnauthorized) {
+                revert Unauthorized();
+            }
+
+            _executeCalls(calls);
+        }
+    }
+
+    function _executeCalls(Call[] calldata calls) private {
         for (uint256 i = 0; i < calls.length; i++) {
             (bool success, bytes memory data) =
                 calls[i].to.call{value: calls[i].value}(calls[i].data);
