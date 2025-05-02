@@ -161,10 +161,6 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         return _encodeNonce(key, s.nonceSequenceNumber[key]);
     }
 
-    function incrementNonce(uint192 key) external onlyThis {
-        _getStorage().nonceSequenceNumber[key]++;
-    }
-
     function invalidateNonce(uint256 newNonce) external onlyThis {
         uint192 key = uint192(newNonce >> 64);
         uint64 targetSeq = uint64(newNonce);
