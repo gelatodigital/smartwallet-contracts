@@ -89,16 +89,16 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
                 opData.length := calldataload(offset)
             }
 
-            // Extract nonce from opData - first 32 bytes
+            // Extract nonceKey from opData - first 24 bytes
             uint192 nonceKey;
             assembly {
-                nonceKey := shl(64, shr(64, calldataload(opData.offset)))
+                nonceKey := shr(64, calldataload(opData.offset))
             }
 
             uint256 nonce = _getAndUseNonce(nonceKey);
             bytes32 digest = _computeDigest(mode, calls, nonce);
 
-            // Verify signature using the rest of opData (excluding the nonce)
+            // Verify signature using the rest of opData (excluding the nonceKey)
             bytes calldata signature;
             assembly {
                 signature.offset := add(opData.offset, 24)

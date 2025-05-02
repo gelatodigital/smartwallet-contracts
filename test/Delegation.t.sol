@@ -119,7 +119,6 @@ contract DelegationTest is ECDSASignature, Test {
             calls[0].data = abi.encodeWithSelector(counter.increment.selector);
 
             uint192 key = 0;
-            uint256 nonce = delegation.getNonce(key);
 
             bytes memory signature = abi.encode(keyHash, sig);
 
@@ -169,5 +168,48 @@ contract DelegationTest is ECDSASignature, Test {
             vm.expectRevert(Delegation.Unauthorized.selector);
             Delegation(eoa).execute(mode, abi.encode(calls, opData));
         }
+    }
+
+    function testParallelNonceOrders() public {
+        bytes32 mode = 0x0100000000007821000100000000000000000000000000000000000000000000;
+
+        Delegation.Call[] memory calls = new Delegation.Call[](1);
+        calls[0].to = address(counter);
+        calls[0].data = abi.encodeWithSelector(counter.increment.selector);
+
+        uint192 key1 = 0;
+        uint192 key2 = 11111;
+
+        uint256 nonce1 = Delegation(eoa).getNonce(key1);
+        uint256 nonce2 = Delegation(eoa).getNonce(key2);
+
+        bytes memory sig1 = _generateECDSASig(vm, delegation, privateKey, mode, calls, nonce1);
+        bytes memory sig2 = _generateECDSASig(vm, delegation, privateKey, mode, calls, nonce2);
+
+        bytes memory opData1 = abi.encodePacked(key1, sig1);
+        bytes memory opData2 = abi.encodePacked(key2, sig2);
+
+        uint256 expectedNonce1 = (uint256(key1) << 64) | uint64(1);
+        uint256 expectedNonce2 = (uint256(key2) << 64) | uint64(1);
+
+        uint256 snapshot = vm.snapshot();
+
+        // Test first order
+        Delegation(eoa).execute(mode, abi.encode(calls, opData1));
+        Delegation(eoa).execute(mode, abi.encode(calls, opData2));
+
+        assertEq(counter.value(), 2);
+        assertEq(Delegation(eoa).getNonce(key1), expectedNonce1);
+        assertEq(Delegation(eoa).getNonce(key2), expectedNonce2);
+
+        vm.revertTo(snapshot);
+
+        // Test second order
+        Delegation(eoa).execute(mode, abi.encode(calls, opData2));
+        Delegation(eoa).execute(mode, abi.encode(calls, opData1));
+
+        assertEq(counter.value(), 2);
+        assertEq(Delegation(eoa).getNonce(key1), expectedNonce1);
+        assertEq(Delegation(eoa).getNonce(key2), expectedNonce2);
     }
 }
