@@ -10,7 +10,7 @@ contract DelegationTest is Test {
     Delegation delegation;
 
     // bd332231782779917708cab38f801e41b47a1621b8270226999e8e6ea344b61c
-    address eoa = 0xD1fa593A9cc041e1CB82492B9CE17f2187fEdB72;
+    address payable eoa = payable(0xD1fa593A9cc041e1CB82492B9CE17f2187fEdB72);
 
     function setUp() public {
         counter = new Counter();
