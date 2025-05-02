@@ -90,20 +90,19 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
             }
 
             // Extract nonce from opData - first 32 bytes
-            uint256 nonce;
+            uint192 nonceKey;
             assembly {
-                nonce := calldataload(opData.offset)
+                nonceKey := shl(64, shr(64, calldataload(opData.offset)))
             }
 
+            uint256 nonce = _getAndUseNonce(nonceKey);
             bytes32 digest = _computeDigest(mode, calls, nonce);
-
-            _validateAndUseNonce(nonce);
 
             // Verify signature using the rest of opData (excluding the nonce)
             bytes calldata signature;
             assembly {
-                signature.offset := add(opData.offset, 32)
-                signature.length := sub(opData.length, 32)
+                signature.offset := add(opData.offset, 24)
+                signature.length := sub(opData.length, 24)
             }
 
             // If `opData` is not empty, the implementation SHOULD use the signature encoded in
@@ -245,13 +244,10 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         return _hashTypedData(executeHash);
     }
 
-    function _validateAndUseNonce(uint256 nonce) private {
-        uint192 key = uint192(nonce >> 64);
-        uint64 seq = uint64(nonce);
-
-        if (_getStorage().nonceSequenceNumber[key]++ != seq) {
-            revert InvalidNonce();
-        }
+    function _getAndUseNonce(uint192 key) private returns (uint256) {
+        uint64 seq = _getStorage().nonceSequenceNumber[key];
+        _getStorage().nonceSequenceNumber[key]++;
+        return _encodeNonce(key, seq);
     }
 
     function _encodeNonce(uint192 key, uint64 seq) private pure returns (uint256) {

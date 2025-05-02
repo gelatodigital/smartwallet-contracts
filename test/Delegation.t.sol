@@ -1,16 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.29;
 
-import {Test} from "forge-std/Test.sol";
+import "forge-std/console.sol";
 import {Counter} from "./Counter.sol";
+import {ECDSASignature} from "./ECDSASignature.sol";
 import {Delegation} from "../src/Delegation.sol";
+import {Test} from "forge-std/Test.sol";
+import {Vm} from "forge-std/Vm.sol";
 
-contract DelegationTest is Test {
+contract DelegationTest is ECDSASignature, Test {
     Counter counter;
     Delegation delegation;
 
-    // bd332231782779917708cab38f801e41b47a1621b8270226999e8e6ea344b61c
-    address eoa = 0xD1fa593A9cc041e1CB82492B9CE17f2187fEdB72;
+    uint256 privateKey = 0xbd332231782779917708cab38f801e41b47a1621b8270226999e8e6ea344b61c;
+    address eoa = vm.addr(privateKey); // 0xD1fa593A9cc041e1CB82492B9CE17f2187fEdB72
 
     function setUp() public {
         counter = new Counter();
@@ -53,14 +56,17 @@ contract DelegationTest is Test {
     function testExecuteECDSA() public {
         bytes32 mode = 0x0100000000007821000100000000000000000000000000000000000000000000;
 
-        bytes memory sig =
-            hex"32ca70ca2f116dd67d1a14db3e331e2ec3f5c7ed503668403d6c3ccc5b4ac9530f91323c99e986c4767bacf75d73788859b5aae5f451441ec848768e870477761c";
-
         Delegation.Call[] memory calls = new Delegation.Call[](1);
         calls[0].to = address(counter);
         calls[0].data = abi.encodeWithSelector(counter.increment.selector);
 
-        Delegation(eoa).execute(mode, abi.encode(calls, sig));
+        uint192 key = 0;
+        uint256 nonce = delegation.getNonce(key);
+
+        bytes memory sig = _generateECDSASig(vm, delegation, privateKey, mode, calls, nonce);
+        bytes memory opData = abi.encodePacked(key, sig);
+
+        Delegation(eoa).execute(mode, abi.encode(calls, opData));
 
         assertEq(counter.value(), 1);
     }
@@ -68,15 +74,20 @@ contract DelegationTest is Test {
     function testExecuteECDSARevert() public {
         bytes32 mode = 0x0100000000007821000100000000000000000000000000000000000000000000;
 
-        bytes memory sig =
-            hex"32ca70ca2f116dd67d1a14bb3e331e2ec3f5c7ed503668403d6c3ccc5b4ac9530f91323c99e986c4767bacf75d73788859b5aae5f451441ec848768e870477761c";
-
         Delegation.Call[] memory calls = new Delegation.Call[](1);
         calls[0].to = address(counter);
         calls[0].data = abi.encodeWithSelector(counter.increment.selector);
 
+        uint192 key = 0;
+        uint256 nonce = delegation.getNonce(key);
+
+        uint256 invalidPrivateKey =
+            vm.deriveKey("test test test test test test test test test test test junk", 0);
+        bytes memory sig = _generateECDSASig(vm, delegation, invalidPrivateKey, mode, calls, nonce);
+        bytes memory opData = abi.encodePacked(key, sig);
+
         vm.expectRevert(Delegation.Unauthorized.selector);
-        Delegation(eoa).execute(mode, abi.encode(calls, sig));
+        Delegation(eoa).execute(mode, abi.encode(calls, opData));
     }
 
     function testExecuteOpData() public {
@@ -113,7 +124,7 @@ contract DelegationTest is Test {
 
             bytes memory signature = abi.encode(keyHash, sig);
 
-            bytes memory opData = abi.encodePacked(abi.encode(nonce), signature);
+            bytes memory opData = abi.encodePacked(key, signature);
 
             Delegation(eoa).execute(mode, abi.encode(calls, opData));
         }
@@ -151,11 +162,10 @@ contract DelegationTest is Test {
             calls[0].data = abi.encodeWithSelector(counter.increment.selector);
 
             uint192 key = 0;
-            uint256 nonce = delegation.getNonce(key);
 
             bytes memory signature = abi.encode(keyHash, sig);
 
-            bytes memory opData = abi.encodePacked(abi.encode(nonce), signature);
+            bytes memory opData = abi.encodePacked(key, signature);
 
             vm.expectRevert(Delegation.Unauthorized.selector);
             Delegation(eoa).execute(mode, abi.encode(calls, opData));
