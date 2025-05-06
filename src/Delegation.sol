@@ -50,33 +50,7 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         _;
     }
 
-    function _decodeCalls(bytes calldata executionData)
-        private
-        pure
-        returns (Call[] calldata calls)
-    {
-        // If `opData` is empty, `executionData` is simply `abi.encode(calls)`.
-        // We decode this from calldata rather than abi.decode which avoids a memory copy
-        assembly {
-            let offset := add(executionData.offset, calldataload(executionData.offset))
-            calls.offset := add(offset, 0x20)
-            calls.length := calldataload(offset)
-        }
-    }
-
-    function _decodeOpData(bytes calldata executionData)
-        private
-        pure
-        returns (bytes calldata opData)
-    {
-        // If `opData` is not empty, `executionData` is `abi.encode(calls, opData)`.
-        // We decode this from calldata rather than abi.decode which avoids a memory copy
-        assembly {
-            let offset := add(executionData.offset, calldataload(add(executionData.offset, 0x20)))
-            opData.offset := add(offset, 0x20)
-            opData.length := calldataload(offset)
-        }
-    }
+    receive() external payable {}
 
     function execute(bytes32 mode, bytes calldata executionData) external payable {
         _execute(mode, executionData, false);
@@ -177,6 +151,34 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
                     revert(add(data, 0x20), mload(data))
                 }
             }
+        }
+    }
+
+    function _decodeCalls(bytes calldata executionData)
+        private
+        pure
+        returns (Call[] calldata calls)
+    {
+        // If `opData` is empty, `executionData` is simply `abi.encode(calls)`.
+        // We decode this from calldata rather than abi.decode which avoids a memory copy
+        assembly {
+            let offset := add(executionData.offset, calldataload(executionData.offset))
+            calls.offset := add(offset, 0x20)
+            calls.length := calldataload(offset)
+        }
+    }
+
+    function _decodeOpData(bytes calldata executionData)
+        private
+        pure
+        returns (bytes calldata opData)
+    {
+        // If `opData` is not empty, `executionData` is `abi.encode(calls, opData)`.
+        // We decode this from calldata rather than abi.decode which avoids a memory copy
+        assembly {
+            let offset := add(executionData.offset, calldataload(add(executionData.offset, 0x20)))
+            opData.offset := add(offset, 0x20)
+            opData.length := calldataload(offset)
         }
     }
 
