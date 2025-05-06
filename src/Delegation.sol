@@ -18,6 +18,7 @@ import {ECDSA} from "solady/utils/ECDSA.sol";
 
 contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
     error UnsupportedExecutionMode();
+    error SimulationResult(uint256);
     error InvalidCaller();
     error Unauthorized();
 
@@ -49,54 +50,16 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         _;
     }
 
+    receive() external payable {}
+
     function execute(bytes32 mode, bytes calldata executionData) external payable {
-        (bytes1 callType, bytes1 execType, bytes4 modeSelector,) = _decodeExecutionMode(mode);
+        _execute(mode, executionData, false);
+    }
 
-        if (callType != CALL_TYPE_BATCH || execType != EXEC_TYPE_DEFAULT) {
-            revert UnsupportedExecutionMode();
-        }
-
-        // If `opData` is empty, `executionData` is simply `abi.encode(calls)`.
-        // We decode this from calldata rather than abi.decode which avoids a memory copy
-        Call[] calldata calls;
-        assembly {
-            let offset := add(executionData.offset, calldataload(executionData.offset))
-            calls.offset := add(offset, 0x20)
-            calls.length := calldataload(offset)
-        }
-
-        if (modeSelector == EXEC_MODE_DEFAULT) {
-            // https://eips.ethereum.org/EIPS/eip-7821
-            // If `opData` is empty, the implementation SHOULD require that `msg.sender ==
-            // address(this)`.
-            // If `msg.sender` is an authorized entry point, then `execute` MAY accept calls from
-            // the entry point.
-            if (msg.sender != address(this) && msg.sender != ENTRY_POINT_V8) {
-                revert Unauthorized();
-            }
-
-            _execute(calls);
-        } else {
-            // If `opData` is not empty, `executionData` is `abi.encode(calls, opData)`.
-            // We decode this from calldata rather than abi.decode which avoids a memory copy
-            bytes calldata opData;
-            assembly {
-                let offset :=
-                    add(executionData.offset, calldataload(add(executionData.offset, 0x20)))
-                opData.offset := add(offset, 0x20)
-                opData.length := calldataload(offset)
-            }
-
-            bytes32 digest = _computeDigest(mode, calls, _getStorage().nonce++);
-
-            // If `opData` is not empty, the implementation SHOULD use the signature encoded in
-            // `opData` to determine if the caller can perform the execution.
-            if (!_verifySignature(digest, opData)) {
-                revert Unauthorized();
-            }
-
-            _execute(calls);
-        }
+    function simulateExecute(bytes32 mode, bytes calldata executionData) external payable {
+        uint256 gas = gasleft();
+        _execute(mode, executionData, true);
+        revert SimulationResult(gas - gasleft());
     }
 
     function supportsExecutionMode(bytes32 mode) external pure returns (bool) {
@@ -144,7 +107,41 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         return _getStorage().nonce;
     }
 
-    function _execute(Call[] calldata calls) private {
+    function _execute(bytes32 mode, bytes calldata executionData, bool allowUnauthorized) private {
+        (bytes1 callType, bytes1 execType, bytes4 modeSelector,) = _decodeExecutionMode(mode);
+
+        if (callType != CALL_TYPE_BATCH || execType != EXEC_TYPE_DEFAULT) {
+            revert UnsupportedExecutionMode();
+        }
+
+        Call[] calldata calls = _decodeCalls(executionData);
+
+        if (modeSelector == EXEC_MODE_DEFAULT) {
+            // https://eips.ethereum.org/EIPS/eip-7821
+            // If `opData` is empty, the implementation SHOULD require that `msg.sender ==
+            // address(this)`.
+            // If `msg.sender` is an authorized entry point, then `execute` MAY accept calls from
+            // the entry point.
+            if (msg.sender != address(this) && msg.sender != ENTRY_POINT_V8 && !allowUnauthorized) {
+                revert Unauthorized();
+            }
+
+            _executeCalls(calls);
+        } else {
+            bytes calldata opData = _decodeOpData(executionData);
+            bytes32 digest = _computeDigest(mode, calls, _getStorage().nonce++);
+
+            // If `opData` is not empty, the implementation SHOULD use the signature encoded in
+            // `opData` to determine if the caller can perform the execution.
+            if (!_verifySignature(digest, opData) && !allowUnauthorized) {
+                revert Unauthorized();
+            }
+
+            _executeCalls(calls);
+        }
+    }
+
+    function _executeCalls(Call[] calldata calls) private {
         for (uint256 i = 0; i < calls.length; i++) {
             (bool success, bytes memory data) =
                 calls[i].to.call{value: calls[i].value}(calls[i].data);
@@ -154,6 +151,34 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
                     revert(add(data, 0x20), mload(data))
                 }
             }
+        }
+    }
+
+    function _decodeCalls(bytes calldata executionData)
+        private
+        pure
+        returns (Call[] calldata calls)
+    {
+        // If `opData` is empty, `executionData` is simply `abi.encode(calls)`.
+        // We decode this from calldata rather than abi.decode which avoids a memory copy
+        assembly {
+            let offset := add(executionData.offset, calldataload(executionData.offset))
+            calls.offset := add(offset, 0x20)
+            calls.length := calldataload(offset)
+        }
+    }
+
+    function _decodeOpData(bytes calldata executionData)
+        private
+        pure
+        returns (bytes calldata opData)
+    {
+        // If `opData` is not empty, `executionData` is `abi.encode(calls, opData)`.
+        // We decode this from calldata rather than abi.decode which avoids a memory copy
+        assembly {
+            let offset := add(executionData.offset, calldataload(add(executionData.offset, 0x20)))
+            opData.offset := add(offset, 0x20)
+            opData.length := calldataload(offset)
         }
     }
 

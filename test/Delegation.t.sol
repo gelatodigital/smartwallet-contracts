@@ -10,7 +10,7 @@ contract DelegationTest is Test {
     Delegation delegation;
 
     // bd332231782779917708cab38f801e41b47a1621b8270226999e8e6ea344b61c
-    address eoa = 0xD1fa593A9cc041e1CB82492B9CE17f2187fEdB72;
+    address payable eoa = payable(0xD1fa593A9cc041e1CB82492B9CE17f2187fEdB72);
 
     function setUp() public {
         counter = new Counter();
@@ -77,6 +77,20 @@ contract DelegationTest is Test {
 
         vm.expectRevert(Delegation.Unauthorized.selector);
         Delegation(eoa).execute(mode, abi.encode(calls, sig));
+    }
+
+    function testSimulateExecuteECDSA() public {
+        bytes32 mode = 0x0100000000007821000100000000000000000000000000000000000000000000;
+
+        bytes memory sig =
+            hex"32ca70ca3f116dd67d1a14db3e331e2ec3f5c7ed503668403d6c3ccc5b4ac9530f91323c99e986c4767bacf75d73788859b5aae5f451441ec848768e870477761c";
+
+        Delegation.Call[] memory calls = new Delegation.Call[](1);
+        calls[0].to = address(counter);
+        calls[0].data = abi.encodeWithSelector(counter.increment.selector);
+
+        vm.expectPartialRevert(Delegation.SimulationResult.selector);
+        Delegation(eoa).simulateExecute(mode, abi.encode(calls, sig));
     }
 
     function testExecuteOpData() public {
