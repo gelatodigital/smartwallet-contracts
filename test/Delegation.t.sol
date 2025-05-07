@@ -131,16 +131,14 @@ contract DelegationTest is ECDSASignature, Test {
             bytes32 mode = 0x0100000000007821000100000000000000000000000000000000000000000000;
 
             bytes memory sig =
-                hex"002549960de5880e8c687434170f6476605b8fe4aeb9a28632c7995cf3ba831d97631d000000007b2274797065223a22776562617574686e2e676574222c226368616c6c656e6765223a2231475257785035655f6243464e6d5a7a7938566b336b6e42356c69626430387a4b73336c6768783570624d222c226f726967696e223a22687474703a2f2f6c6f63616c686f73743a31323334222c2263726f73734f726967696e223a66616c73657d0017000199cf3fdc8289122df0a83d3948584ec8cdc2d614d6bc6b16a72b31d2f33d98007043a8d4ccb542db1505868c04188238cb16580779bb5c0e667cd5a1f60edad9";
+                hex"002549960de5880e8c687434170f6476605b8fe4aeb9a28632c7995cf3ba831d97631d000000007b2274797065223a22776562617574686e2e676574222c226368616c6c656e6765223a22596265416d6d6b41764f464b33685642375a5830366e7543704a6965367151496c59484b685f4a4f786d4d222c226f726967696e223a22687474703a2f2f6c6f63616c686f73743a31323334222c2263726f73734f726967696e223a66616c73657d00170001b7716bd5b28c697861afc5775b645c3aeb836efd6c427a670f64a929acc68a517afcb4acd74c57045a7310cf7140531ffb4f8e1c539c551d8bd2c66f469d87f5";
 
             Delegation.Call[] memory calls = new Delegation.Call[](1);
             calls[0].to = address(counter);
             calls[0].data = abi.encodeWithSelector(counter.increment.selector);
 
             uint192 key = 0;
-
-            bytes memory sig = abi.encode(keyHash, sig);
-            bytes memory opData = abi.encodePacked(key, sig);
+            bytes memory opData = abi.encodePacked(key, abi.encode(keyHash, sig));
 
             Delegation(eoa).execute(mode, abi.encode(calls, opData));
         }
@@ -178,9 +176,7 @@ contract DelegationTest is ECDSASignature, Test {
             calls[0].data = abi.encodeWithSelector(counter.increment.selector);
 
             uint192 key = 0;
-
-            bytes memory sig = abi.encode(keyHash, sig);
-            bytes memory opData = abi.encodePacked(key, sig);
+            bytes memory opData = abi.encodePacked(key, abi.encode(keyHash, sig));
 
             vm.expectRevert(Delegation.Unauthorized.selector);
             Delegation(eoa).execute(mode, abi.encode(calls, opData));
