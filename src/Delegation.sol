@@ -51,68 +51,10 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         _;
     }
 
+    receive() external payable {}
+
     function execute(bytes32 mode, bytes calldata executionData) external payable {
-        (bytes1 callType, bytes1 execType, bytes4 modeSelector,) = _decodeExecutionMode(mode);
-
-        if (callType != CALL_TYPE_BATCH || execType != EXEC_TYPE_DEFAULT) {
-            revert UnsupportedExecutionMode();
-        }
-
-        // If `opData` is empty, `executionData` is simply `abi.encode(calls)`.
-        // We decode this from calldata rather than abi.decode which avoids a memory copy
-        Call[] calldata calls;
-        assembly {
-            let offset := add(executionData.offset, calldataload(executionData.offset))
-            calls.offset := add(offset, 0x20)
-            calls.length := calldataload(offset)
-        }
-
-        if (modeSelector == EXEC_MODE_DEFAULT) {
-            // https://eips.ethereum.org/EIPS/eip-7821
-            // If `opData` is empty, the implementation SHOULD require that `msg.sender ==
-            // address(this)`.
-            // If `msg.sender` is an authorized entry point, then `execute` MAY accept calls from
-            // the entry point.
-            if (msg.sender != address(this) && msg.sender != ENTRY_POINT_V8) {
-                revert Unauthorized();
-            }
-
-            _execute(calls);
-        } else {
-            // If `opData` is not empty, `executionData` is `abi.encode(calls, opData)`.
-            // We decode this from calldata rather than abi.decode which avoids a memory copy
-            bytes calldata opData;
-            assembly {
-                let offset :=
-                    add(executionData.offset, calldataload(add(executionData.offset, 0x20)))
-                opData.offset := add(offset, 0x20)
-                opData.length := calldataload(offset)
-            }
-
-            // Extract nonceKey from opData - first 24 bytes
-            uint192 nonceKey;
-            assembly {
-                nonceKey := shr(64, calldataload(opData.offset))
-            }
-
-            uint256 nonce = _getAndUseNonce(nonceKey);
-            bytes32 digest = _computeDigest(mode, calls, nonce);
-
-            // Verify signature using the rest of opData (excluding the nonceKey)
-            bytes calldata signature;
-            assembly {
-                signature.offset := add(opData.offset, 24)
-                signature.length := sub(opData.length, 24)
-            }
-
-            // If `opData` is not empty, the implementation SHOULD use the signature encoded in
-            // `opData` to determine if the caller can perform the execution.
-            if (!_verifySignature(digest, signature)) {
-                revert Unauthorized();
-            }
-
-            _execute(calls);
-        }
+        _execute(mode, executionData, false);
     }
 
     function supportsExecutionMode(bytes32 mode) external pure returns (bool) {
@@ -179,7 +121,46 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         _getStorage().nonceSequenceNumber[key] = targetSeq;
     }
 
-    function _execute(Call[] calldata calls) private {
+    function _execute(bytes32 mode, bytes calldata executionData, bool allowUnauthorized)
+        internal
+    {
+        (bytes1 callType, bytes1 execType, bytes4 modeSelector,) = _decodeExecutionMode(mode);
+
+        if (callType != CALL_TYPE_BATCH || execType != EXEC_TYPE_DEFAULT) {
+            revert UnsupportedExecutionMode();
+        }
+
+        Call[] calldata calls = _decodeCalls(executionData);
+
+        if (modeSelector == EXEC_MODE_DEFAULT) {
+            // https://eips.ethereum.org/EIPS/eip-7821
+            // If `opData` is empty, the implementation SHOULD require that `msg.sender ==
+            // address(this)`.
+            // If `msg.sender` is an authorized entry point, then `execute` MAY accept calls from
+            // the entry point.
+            if (msg.sender != address(this) && msg.sender != ENTRY_POINT_V8 && !allowUnauthorized) {
+                revert Unauthorized();
+            }
+
+            _executeCalls(calls);
+        } else {
+            bytes calldata opData = _decodeOpData(executionData);
+            bytes calldata signature = _decodeSignature(opData);
+
+            uint256 nonce = _getAndUseNonce(_decodeNonceKey(opData));
+            bytes32 digest = _computeDigest(mode, calls, nonce);
+
+            // If `opData` is not empty, the implementation SHOULD use the signature encoded in
+            // `opData` to determine if the caller can perform the execution.
+            if (!_verifySignature(digest, signature) && !allowUnauthorized) {
+                revert Unauthorized();
+            }
+
+            _executeCalls(calls);
+        }
+    }
+
+    function _executeCalls(Call[] calldata calls) internal {
         for (uint256 i = 0; i < calls.length; i++) {
             (bool success, bytes memory data) =
                 calls[i].to.call{value: calls[i].value}(calls[i].data);
@@ -192,8 +173,53 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         }
     }
 
+    function _decodeCalls(bytes calldata executionData)
+        internal
+        pure
+        returns (Call[] calldata calls)
+    {
+        // If `opData` is empty, `executionData` is simply `abi.encode(calls)`.
+        // We decode this from calldata rather than abi.decode which avoids a memory copy
+        assembly {
+            let offset := add(executionData.offset, calldataload(executionData.offset))
+            calls.offset := add(offset, 0x20)
+            calls.length := calldataload(offset)
+        }
+    }
+
+    function _decodeOpData(bytes calldata executionData)
+        internal
+        pure
+        returns (bytes calldata opData)
+    {
+        // If `opData` is not empty, `executionData` is `abi.encode(calls, opData)`.
+        // We decode this from calldata rather than abi.decode which avoids a memory copy
+        assembly {
+            let offset := add(executionData.offset, calldataload(add(executionData.offset, 0x20)))
+            opData.offset := add(offset, 0x20)
+            opData.length := calldataload(offset)
+        }
+    }
+
+    function _decodeNonceKey(bytes calldata opData) internal pure returns (uint192 nonceKey) {
+        assembly {
+            nonceKey := shr(64, calldataload(opData.offset))
+        }
+    }
+
+    function _decodeSignature(bytes calldata opData)
+        internal
+        pure
+        returns (bytes calldata signature)
+    {
+        assembly {
+            signature.offset := add(opData.offset, 24)
+            signature.length := sub(opData.length, 24)
+        }
+    }
+
     function _verifySignature(bytes32 digest, bytes calldata signature)
-        private
+        internal
         view
         returns (bool)
     {
@@ -222,7 +248,7 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
     }
 
     function _computeDigest(bytes32 mode, Call[] calldata calls, uint256 nonce)
-        private
+        internal
         view
         returns (bytes32)
     {
@@ -240,24 +266,24 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         return _hashTypedData(executeHash);
     }
 
-    function _getAndUseNonce(uint192 key) private returns (uint256) {
+    function _getAndUseNonce(uint192 key) internal returns (uint256) {
         uint64 seq = _getStorage().nonceSequenceNumber[key];
         _getStorage().nonceSequenceNumber[key]++;
         return _encodeNonce(key, seq);
     }
 
-    function _encodeNonce(uint192 key, uint64 seq) private pure returns (uint256) {
+    function _encodeNonce(uint192 key, uint64 seq) internal pure returns (uint256) {
         return (uint256(key) << 64) | seq;
     }
 
-    function _getStorage() private pure returns (Storage storage $) {
+    function _getStorage() internal pure returns (Storage storage $) {
         assembly {
             $.slot := STORAGE_LOCATION
         }
     }
 
     function _decodeExecutionMode(bytes32 mode)
-        private
+        internal
         pure
         returns (bytes1 calltype, bytes1 execType, bytes4 modeSelector, bytes22 modePayload)
     {

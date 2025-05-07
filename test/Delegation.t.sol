@@ -4,15 +4,15 @@ pragma solidity ^0.8.29;
 import {Counter} from "./Counter.sol";
 import {ECDSASignature} from "./ECDSASignature.sol";
 import {Delegation} from "../src/Delegation.sol";
+import {Simulation} from "../src/Simulation.sol";
 import {Test} from "forge-std/Test.sol";
-import {Vm} from "forge-std/Vm.sol";
 
 contract DelegationTest is ECDSASignature, Test {
     Counter counter;
     Delegation delegation;
 
     uint256 privateKey = 0xbd332231782779917708cab38f801e41b47a1621b8270226999e8e6ea344b61c;
-    address eoa = vm.addr(privateKey); // 0xD1fa593A9cc041e1CB82492B9CE17f2187fEdB72
+    address payable eoa = payable(vm.addr(privateKey)); // 0xD1fa593A9cc041e1CB82492B9CE17f2187fEdB72
 
     function setUp() public {
         counter = new Counter();
@@ -87,6 +87,25 @@ contract DelegationTest is ECDSASignature, Test {
 
         vm.expectRevert(Delegation.Unauthorized.selector);
         Delegation(eoa).execute(mode, abi.encode(calls, opData));
+    }
+
+    function testSimulateExecuteECDSA() public {
+        bytes32 mode = 0x0100000000007821000100000000000000000000000000000000000000000000;
+
+        Delegation.Call[] memory calls = new Delegation.Call[](1);
+        calls[0].to = address(counter);
+        calls[0].data = abi.encodeWithSelector(counter.increment.selector);
+
+        uint192 key = 0;
+        uint256 nonce = delegation.getNonce(key);
+
+        uint256 invalidPrivateKey =
+            vm.deriveKey("test test test test test test test test test test test junk", 0);
+        bytes memory sig = _generateECDSASig(vm, delegation, invalidPrivateKey, mode, calls, nonce);
+        bytes memory opData = abi.encodePacked(key, sig);
+
+        vm.etch(eoa, vm.getCode("Simulation.sol:Simulation"));
+        Simulation(eoa).simulateExecute(mode, abi.encode(calls, opData));
     }
 
     function testExecuteOpData() public {
