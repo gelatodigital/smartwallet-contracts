@@ -139,9 +139,8 @@ contract DelegationTest is ECDSASignature, Test {
 
             uint192 key = 0;
 
-            bytes memory signature = abi.encode(keyHash, sig);
-
-            bytes memory opData = abi.encodePacked(key, signature);
+            bytes memory sig = abi.encode(keyHash, sig);
+            bytes memory opData = abi.encodePacked(key, sig);
 
             Delegation(eoa).execute(mode, abi.encode(calls, opData));
         }
@@ -180,9 +179,8 @@ contract DelegationTest is ECDSASignature, Test {
 
             uint192 key = 0;
 
-            bytes memory signature = abi.encode(keyHash, sig);
-
-            bytes memory opData = abi.encodePacked(key, signature);
+            bytes memory sig = abi.encode(keyHash, sig);
+            bytes memory opData = abi.encodePacked(key, sig);
 
             vm.expectRevert(Delegation.Unauthorized.selector);
             Delegation(eoa).execute(mode, abi.encode(calls, opData));
