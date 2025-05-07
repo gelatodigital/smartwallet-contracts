@@ -104,8 +104,7 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
     }
 
     function invalidateNonce(uint256 newNonce) external onlyThis {
-        uint192 key = uint192(newNonce >> 64);
-        uint64 targetSeq = uint64(newNonce);
+        (uint192 key, uint64 targetSeq) = _decodeNonce(newNonce);
         uint64 currentSeq = _getStorage().nonceSequenceNumber[key];
 
         if (targetSeq <= currentSeq) {
@@ -274,6 +273,11 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
 
     function _encodeNonce(uint192 key, uint64 seq) internal pure returns (uint256) {
         return (uint256(key) << 64) | seq;
+    }
+
+    function _decodeNonce(uint256 nonce) internal pure returns (uint192 key, uint64 seq) {
+        key = uint192(nonce >> 64);
+        seq = uint64(nonce);
     }
 
     function _getStorage() internal pure returns (Storage storage $) {
