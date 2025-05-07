@@ -307,7 +307,7 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         override
         returns (string memory name, string memory version)
     {
-        name = "gelato.delegation";
+        name = "GelatoDelegation";
         version = "0.0.1";
     }
 }
