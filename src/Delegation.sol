@@ -18,7 +18,6 @@ import {ECDSA} from "solady/utils/ECDSA.sol";
 
 contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
     error UnsupportedExecutionMode();
-    error SimulationResult(uint256);
     error InvalidCaller();
     error Unauthorized();
 
@@ -54,12 +53,6 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
 
     function execute(bytes32 mode, bytes calldata executionData) external payable {
         _execute(mode, executionData, false);
-    }
-
-    function simulateExecute(bytes32 mode, bytes calldata executionData) external payable {
-        uint256 gas = gasleft();
-        _execute(mode, executionData, true);
-        revert SimulationResult(gas - gasleft());
     }
 
     function supportsExecutionMode(bytes32 mode) external pure returns (bool) {
@@ -107,7 +100,9 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         return _getStorage().nonce;
     }
 
-    function _execute(bytes32 mode, bytes calldata executionData, bool allowUnauthorized) private {
+    function _execute(bytes32 mode, bytes calldata executionData, bool allowUnauthorized)
+        internal
+    {
         (bytes1 callType, bytes1 execType, bytes4 modeSelector,) = _decodeExecutionMode(mode);
 
         if (callType != CALL_TYPE_BATCH || execType != EXEC_TYPE_DEFAULT) {
@@ -141,7 +136,7 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         }
     }
 
-    function _executeCalls(Call[] calldata calls) private {
+    function _executeCalls(Call[] calldata calls) internal {
         for (uint256 i = 0; i < calls.length; i++) {
             (bool success, bytes memory data) =
                 calls[i].to.call{value: calls[i].value}(calls[i].data);
@@ -155,7 +150,7 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
     }
 
     function _decodeCalls(bytes calldata executionData)
-        private
+        internal
         pure
         returns (Call[] calldata calls)
     {
@@ -169,7 +164,7 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
     }
 
     function _decodeOpData(bytes calldata executionData)
-        private
+        internal
         pure
         returns (bytes calldata opData)
     {
@@ -183,7 +178,7 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
     }
 
     function _verifySignature(bytes32 digest, bytes calldata signature)
-        private
+        internal
         view
         returns (bool)
     {
@@ -212,7 +207,7 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
     }
 
     function _computeDigest(bytes32 mode, Call[] calldata calls, uint256 nonce)
-        private
+        internal
         view
         returns (bytes32)
     {
@@ -230,14 +225,14 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         return _hashTypedData(executeHash);
     }
 
-    function _getStorage() private pure returns (Storage storage $) {
+    function _getStorage() internal pure returns (Storage storage $) {
         assembly {
             $.slot := STORAGE_LOCATION
         }
     }
 
     function _decodeExecutionMode(bytes32 mode)
-        private
+        internal
         pure
         returns (bytes1 calltype, bytes1 execType, bytes4 modeSelector, bytes22 modePayload)
     {

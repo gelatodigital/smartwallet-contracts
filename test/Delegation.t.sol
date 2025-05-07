@@ -4,6 +4,7 @@ pragma solidity ^0.8.29;
 import {Test} from "forge-std/Test.sol";
 import {Counter} from "./Counter.sol";
 import {Delegation} from "../src/Delegation.sol";
+import {Simulation} from "../src/Simulation.sol";
 
 contract DelegationTest is Test {
     Counter counter;
@@ -89,8 +90,8 @@ contract DelegationTest is Test {
         calls[0].to = address(counter);
         calls[0].data = abi.encodeWithSelector(counter.increment.selector);
 
-        vm.expectPartialRevert(Delegation.SimulationResult.selector);
-        Delegation(eoa).simulateExecute(mode, abi.encode(calls, sig));
+        vm.etch(eoa, vm.getCode("Simulation.sol:Simulation"));
+        Simulation(eoa).simulateExecute(mode, abi.encode(calls, sig));
     }
 
     function testExecuteOpData() public {
