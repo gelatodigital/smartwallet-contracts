@@ -24,16 +24,16 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
     error ExcessiveInvalidation();
 
     // https://eips.ethereum.org/EIPS/eip-7201
-    /// @custom:storage-location erc7201:delegation.storage
+    /// @custom:storage-location erc7201:gelato.delegation.storage
     struct Storage {
         mapping(uint192 => uint64) nonceSequenceNumber;
         mapping(bytes32 => bytes) pubkey;
     }
 
-    // keccak256(abi.encode(uint256(keccak256("delegation.storage")) - 1)) &
+    // keccak256(abi.encode(uint256(keccak256("gelato.delegation.storage")) - 1)) &
     // ~bytes32(uint256(0xff));
     bytes32 private constant STORAGE_LOCATION =
-        0xf2a7602a6b0fea467fdf81ac322504e60523f80eb506a1ca5e0f3e0d2ac70500;
+        0x1581abf533ae210f1ff5d25f322511179a9a65d8d8e43c998eab264f924af900;
 
     // keccak256("Execute(bytes32 mode,Call[] calls,uint256 nonce)Call(address to,uint256
     // value,bytes data)")
@@ -307,7 +307,7 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         override
         returns (string memory name, string memory version)
     {
-        name = "Delegation";
+        name = "GelatoDelegation";
         version = "0.0.1";
     }
 }
