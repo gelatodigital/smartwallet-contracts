@@ -2,9 +2,6 @@
 cache/
 out/
 
-# Ignores development broadcast logs
-broadcast/
-
 # Dotenv file
 .env
 
