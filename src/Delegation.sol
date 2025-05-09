@@ -12,8 +12,6 @@ import {
     ENTRY_POINT_V8
 } from "./types/Constants.sol";
 import {EIP712} from "solady/utils/EIP712.sol";
-import {P256} from "solady/utils/P256.sol";
-import {WebAuthn} from "solady/utils/WebAuthn.sol";
 import {ECDSA} from "solady/utils/ECDSA.sol";
 
 contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
@@ -27,7 +25,6 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
     /// @custom:storage-location erc7201:gelato.delegation.storage
     struct Storage {
         mapping(uint192 => uint64) nonceSequenceNumber;
-        mapping(bytes32 => bytes) pubkey;
     }
 
     // keccak256(abi.encode(uint256(keccak256("gelato.delegation.storage")) - 1)) &
@@ -87,15 +84,6 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
     {
         // https://eips.ethereum.org/EIPS/eip-4337
         return _verifySignature(userOpHash, userOp.signature) ? 0 : 1;
-    }
-
-    function addSigner(bytes calldata pubkey) external onlyThis {
-        bytes32 keyHash = keccak256(pubkey);
-        _getStorage().pubkey[keyHash] = pubkey;
-    }
-
-    function removeSigner(bytes32 keyHash) external onlyThis {
-        delete _getStorage().pubkey[keyHash];
     }
 
     function getNonce(uint192 key) external view returns (uint256) {
@@ -222,28 +210,7 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         view
         returns (bool)
     {
-        // If `signature` length is 64 or 65, treat it as secp256k1 signature
-        if (signature.length == 64 || signature.length == 65) {
-            return ECDSA.recoverCalldata(digest, signature) == address(this);
-        }
-
-        // `data` is `abi.encode(keyHash, signature)`.
-        bytes32 keyHash;
-        assembly {
-            keyHash := calldataload(signature.offset)
-
-            let offset := add(signature.offset, calldataload(add(signature.offset, 0x20)))
-            signature.offset := add(offset, 0x20)
-            signature.length := calldataload(offset)
-        }
-
-        bytes storage pubkey = _getStorage().pubkey[keyHash];
-
-        (bytes32 x, bytes32 y) = P256.tryDecodePoint(pubkey);
-
-        return WebAuthn.verify(
-            abi.encode(digest), false, WebAuthn.tryDecodeAuthCompactCalldata(signature), x, y
-        );
+        return ECDSA.recoverCalldata(digest, signature) == address(this);
     }
 
     function _computeDigest(bytes32 mode, Call[] calldata calls, uint256 nonce)
