@@ -16,20 +16,21 @@ import {ECDSA} from "solady/utils/ECDSA.sol";
 
 contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
     error UnsupportedExecutionMode();
-    error SimulationResult(uint256);
     error InvalidCaller();
     error Unauthorized();
+    error InvalidNonce();
+    error ExcessiveInvalidation();
 
     // https://eips.ethereum.org/EIPS/eip-7201
-    /// @custom:storage-location erc7201:delegation.storage
+    /// @custom:storage-location erc7201:gelato.delegation.storage
     struct Storage {
-        uint256 nonce;
+        mapping(uint192 => uint64) nonceSequenceNumber;
     }
 
-    // keccak256(abi.encode(uint256(keccak256("delegation.storage")) - 1)) &
+    // keccak256(abi.encode(uint256(keccak256("gelato.delegation.storage")) - 1)) &
     // ~bytes32(uint256(0xff));
     bytes32 private constant STORAGE_LOCATION =
-        0xf2a7602a6b0fea467fdf81ac322504e60523f80eb506a1ca5e0f3e0d2ac70500;
+        0x1581abf533ae210f1ff5d25f322511179a9a65d8d8e43c998eab264f924af900;
 
     // keccak256("Execute(bytes32 mode,Call[] calls,uint256 nonce)Call(address to,uint256
     // value,bytes data)")
@@ -51,12 +52,6 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
 
     function execute(bytes32 mode, bytes calldata executionData) external payable {
         _execute(mode, executionData, false);
-    }
-
-    function simulateExecute(bytes32 mode, bytes calldata executionData) external payable {
-        uint256 gas = gasleft();
-        _execute(mode, executionData, true);
-        revert SimulationResult(gas - gasleft());
     }
 
     function supportsExecutionMode(bytes32 mode) external pure returns (bool) {
@@ -91,11 +86,31 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         return _verifySignature(userOpHash, userOp.signature) ? 0 : 1;
     }
 
-    function getNonce() external view returns (uint256) {
-        return _getStorage().nonce;
+    function getNonce(uint192 key) external view returns (uint256) {
+        Storage storage s = _getStorage();
+        return _encodeNonce(key, s.nonceSequenceNumber[key]);
     }
 
-    function _execute(bytes32 mode, bytes calldata executionData, bool allowUnauthorized) private {
+    function invalidateNonce(uint256 newNonce) external onlyThis {
+        (uint192 key, uint64 targetSeq) = _decodeNonce(newNonce);
+        uint64 currentSeq = _getStorage().nonceSequenceNumber[key];
+
+        if (targetSeq <= currentSeq) {
+            revert InvalidNonce();
+        }
+
+        // Limit how many nonces can be invalidated at once
+        unchecked {
+            uint64 delta = targetSeq - currentSeq;
+            if (delta > type(uint16).max) revert ExcessiveInvalidation();
+        }
+
+        _getStorage().nonceSequenceNumber[key] = targetSeq;
+    }
+
+    function _execute(bytes32 mode, bytes calldata executionData, bool allowUnauthorized)
+        internal
+    {
         (bytes1 callType, bytes1 execType, bytes4 modeSelector,) = _decodeExecutionMode(mode);
 
         if (callType != CALL_TYPE_BATCH || execType != EXEC_TYPE_DEFAULT) {
@@ -117,11 +132,14 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
             _executeCalls(calls);
         } else {
             bytes calldata opData = _decodeOpData(executionData);
-            bytes32 digest = _computeDigest(mode, calls, _getStorage().nonce++);
+            bytes calldata signature = _decodeSignature(opData);
+
+            uint256 nonce = _getAndUseNonce(_decodeNonceKey(opData));
+            bytes32 digest = _computeDigest(mode, calls, nonce);
 
             // If `opData` is not empty, the implementation SHOULD use the signature encoded in
             // `opData` to determine if the caller can perform the execution.
-            if (!_verifySignature(digest, opData) && !allowUnauthorized) {
+            if (!_verifySignature(digest, signature) && !allowUnauthorized) {
                 revert Unauthorized();
             }
 
@@ -129,7 +147,7 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         }
     }
 
-    function _executeCalls(Call[] calldata calls) private {
+    function _executeCalls(Call[] calldata calls) internal {
         for (uint256 i = 0; i < calls.length; i++) {
             (bool success, bytes memory data) =
                 calls[i].to.call{value: calls[i].value}(calls[i].data);
@@ -143,7 +161,7 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
     }
 
     function _decodeCalls(bytes calldata executionData)
-        private
+        internal
         pure
         returns (Call[] calldata calls)
     {
@@ -157,7 +175,7 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
     }
 
     function _decodeOpData(bytes calldata executionData)
-        private
+        internal
         pure
         returns (bytes calldata opData)
     {
@@ -170,8 +188,25 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         }
     }
 
+    function _decodeNonceKey(bytes calldata opData) internal pure returns (uint192 nonceKey) {
+        assembly {
+            nonceKey := shr(64, calldataload(opData.offset))
+        }
+    }
+
+    function _decodeSignature(bytes calldata opData)
+        internal
+        pure
+        returns (bytes calldata signature)
+    {
+        assembly {
+            signature.offset := add(opData.offset, 24)
+            signature.length := sub(opData.length, 24)
+        }
+    }
+
     function _verifySignature(bytes32 digest, bytes calldata signature)
-        private
+        internal
         view
         returns (bool)
     {
@@ -179,7 +214,7 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
     }
 
     function _computeDigest(bytes32 mode, Call[] calldata calls, uint256 nonce)
-        private
+        internal
         view
         returns (bytes32)
     {
@@ -197,14 +232,29 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         return _hashTypedData(executeHash);
     }
 
-    function _getStorage() private pure returns (Storage storage $) {
+    function _getAndUseNonce(uint192 key) internal returns (uint256) {
+        uint64 seq = _getStorage().nonceSequenceNumber[key];
+        _getStorage().nonceSequenceNumber[key]++;
+        return _encodeNonce(key, seq);
+    }
+
+    function _encodeNonce(uint192 key, uint64 seq) internal pure returns (uint256) {
+        return (uint256(key) << 64) | seq;
+    }
+
+    function _decodeNonce(uint256 nonce) internal pure returns (uint192 key, uint64 seq) {
+        key = uint192(nonce >> 64);
+        seq = uint64(nonce);
+    }
+
+    function _getStorage() internal pure returns (Storage storage $) {
         assembly {
             $.slot := STORAGE_LOCATION
         }
     }
 
     function _decodeExecutionMode(bytes32 mode)
-        private
+        internal
         pure
         returns (bytes1 calltype, bytes1 execType, bytes4 modeSelector, bytes22 modePayload)
     {
@@ -224,7 +274,7 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         override
         returns (string memory name, string memory version)
     {
-        name = "Delegation";
+        name = "GelatoDelegation";
         version = "0.0.1";
     }
 }
