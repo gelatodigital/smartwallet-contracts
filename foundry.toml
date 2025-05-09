@@ -8,10 +8,8 @@ line_length = 100
 wrap_comments = true
 
 [rpc_endpoints]
-ethereum = "https://eth-mainnet.alchemyapi.io/v2/${ALCHEMY_API_KEY}"
-optimism = "https://opt-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
-base = "https://base-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
-basesepolia = "https://base-sepolia.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
-sepolia = "https://eth-sepolia.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
+basesepolia = "https://sepolia.base.org"
+sepolia = "https://sepolia.drpc.org"
+inksepolia = "https://rpc-gel-sepolia.inkonchain.com"
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

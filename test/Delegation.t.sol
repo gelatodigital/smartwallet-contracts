@@ -124,7 +124,7 @@ contract DelegationTest is ECDSASignature, Test {
         uint256 expectedNonce1 = (uint256(key1) << 64) | uint64(1);
         uint256 expectedNonce2 = (uint256(key2) << 64) | uint64(1);
 
-        uint256 snapshot = vm.snapshot();
+        uint256 state = vm.snapshotState();
 
         // Test first order
         Delegation(eoa).execute(mode, abi.encode(calls, opData1));
@@ -134,7 +134,7 @@ contract DelegationTest is ECDSASignature, Test {
         assertEq(Delegation(eoa).getNonce(key1), expectedNonce1);
         assertEq(Delegation(eoa).getNonce(key2), expectedNonce2);
 
-        vm.revertTo(snapshot);
+        vm.revertToState(state);
 
         // Test second order
         Delegation(eoa).execute(mode, abi.encode(calls, opData2));
