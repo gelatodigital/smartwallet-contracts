@@ -12,7 +12,6 @@ import {
     ENTRY_POINT_V8
 } from "./types/Constants.sol";
 import {EIP712} from "solady/utils/EIP712.sol";
-import {ECDSA} from "solady/utils/ECDSA.sol";
 
 contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
     error UnsupportedExecutionMode();
@@ -48,7 +47,42 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         _;
     }
 
+    modifier onlyEntryPoint() {
+        if (msg.sender != entryPoint()) {
+            revert InvalidCaller();
+        }
+        _;
+    }
+
+    fallback() external payable {}
+
     receive() external payable {}
+
+    function onERC721Received(address, address, uint256, bytes calldata)
+        external
+        pure
+        returns (bytes4)
+    {
+        return this.onERC721Received.selector;
+    }
+
+    function onERC1155Received(address, address, uint256, uint256, bytes calldata)
+        external
+        pure
+        returns (bytes4)
+    {
+        return this.onERC1155Received.selector;
+    }
+
+    function onERC1155BatchReceived(
+        address,
+        address,
+        uint256[] calldata,
+        uint256[] calldata,
+        bytes calldata
+    ) external pure returns (bytes4) {
+        return this.onERC1155BatchReceived.selector;
+    }
 
     function execute(bytes32 mode, bytes calldata executionData) external payable {
         _execute(mode, executionData, false);
@@ -68,24 +102,34 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         return true;
     }
 
+    // https://eips.ethereum.org/EIPS/eip-1271
     function isValidSignature(bytes32 digest, bytes calldata signature)
         external
         view
         returns (bytes4)
     {
-        // https://eips.ethereum.org/EIPS/eip-1271
         return _verifySignature(digest, signature) ? bytes4(0x1626ba7e) : bytes4(0xffffffff);
     }
 
-    function validateUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash, uint256)
-        external
-        view
-        returns (uint256)
-    {
-        // https://eips.ethereum.org/EIPS/eip-4337
+    function validateUserOp(
+        PackedUserOperation calldata userOp,
+        bytes32 userOpHash,
+        uint256 missingAccountFunds
+    ) external onlyEntryPoint returns (uint256) {
+        if (missingAccountFunds != 0) {
+            (bool success,) = payable(msg.sender).call{value: missingAccountFunds}("");
+            (success);
+        }
+
         return _verifySignature(userOpHash, userOp.signature) ? 0 : 1;
     }
 
+    function entryPoint() public pure returns (address) {
+        // https://github.com/eth-infinitism/account-abstraction/releases/tag/v0.8.0
+        return ENTRY_POINT_V8;
+    }
+
+    // https://eips.ethereum.org/EIPS/eip-4337
     function getNonce(uint192 key) external view returns (uint256) {
         Storage storage s = _getStorage();
         return _encodeNonce(key, s.nonceSequenceNumber[key]);
@@ -125,12 +169,12 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
             // address(this)`.
             // If `msg.sender` is an authorized entry point, then `execute` MAY accept calls from
             // the entry point.
-            if (msg.sender != address(this) && msg.sender != ENTRY_POINT_V8 && !allowUnauthorized) {
+            if (msg.sender != address(this) && msg.sender != entryPoint() && !allowUnauthorized) {
                 revert Unauthorized();
             }
 
             _executeCalls(calls);
-        } else {
+        } else if (modeSelector == EXEC_MODE_OP_DATA) {
             bytes calldata opData = _decodeOpData(executionData);
             bytes calldata signature = _decodeSignature(opData);
 
@@ -144,13 +188,17 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
             }
 
             _executeCalls(calls);
+        } else {
+            revert UnsupportedExecutionMode();
         }
     }
 
     function _executeCalls(Call[] calldata calls) internal {
         for (uint256 i = 0; i < calls.length; i++) {
-            (bool success, bytes memory data) =
-                calls[i].to.call{value: calls[i].value}(calls[i].data);
+            Call calldata call = calls[i];
+            address to = call.to == address(0) ? address(this) : call.to;
+
+            (bool success, bytes memory data) = to.call{value: call.value}(call.data);
 
             if (!success) {
                 assembly {
@@ -205,12 +253,35 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         }
     }
 
+    function _decodeSignatureComponents(bytes calldata signature)
+        internal
+        pure
+        returns (bytes32 r, bytes32 s, uint8 v)
+    {
+        assembly {
+            r := calldataload(signature.offset)
+            s := calldataload(add(signature.offset, 0x20))
+            v := byte(0, calldataload(add(signature.offset, 0x40)))
+        }
+    }
+
     function _verifySignature(bytes32 digest, bytes calldata signature)
         internal
         view
         returns (bool)
     {
-        return ECDSA.recoverCalldata(digest, signature) == address(this);
+        if (signature.length != 65) {
+            return false;
+        }
+
+        (bytes32 r, bytes32 s, uint8 v) = _decodeSignatureComponents(signature);
+
+        // https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/utils/cryptography/ECDSA.sol#L134-L145
+        if (uint256(s) > 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0) {
+            return false;
+        }
+
+        return ecrecover(digest, v, r, s) == address(this);
     }
 
     function _computeDigest(bytes32 mode, Call[] calldata calls, uint256 nonce)
