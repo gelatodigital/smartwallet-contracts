@@ -352,7 +352,7 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         // `signature` is `abi.encodePacked(validator, data)`.
         // We decode this from calldata rather than abi.decode which avoids a memory copy.
         assembly {
-            validator := shr(0x60, calldataload(signature.offset))
+            validator := shr(96, calldataload(signature.offset))
 
             data.offset := add(signature.offset, 20)
             data.length := sub(signature.length, 20)
