@@ -2,6 +2,7 @@
 pragma solidity ^0.8.29;
 
 import {IValidator} from "../interfaces/IValidator.sol";
+import {IERC7821} from "../interfaces/IERC7821.sol";
 import {P256} from "solady/utils/P256.sol";
 import {WebAuthn} from "solady/utils/WebAuthn.sol";
 
@@ -21,14 +22,36 @@ contract PasskeyValidator is IValidator {
         delete _getAccountStorage().pubkey[keyHash];
     }
 
-    function validate(bytes32 digest, bytes calldata data) external view returns (bool) {
-        (bytes32 keyHash, bytes calldata signature) = _decodeData(data);
+    function isValidSignature(bytes32 digest, bytes calldata signature)
+        external
+        view
+        returns (bytes4)
+    {
+        return _verifySignature(digest, signature) ? bytes4(0x1626ba7e) : bytes4(0xffffffff);
+    }
+
+    function validate(IERC7821.Call[] calldata, address, bytes32 digest, bytes calldata signature)
+        external
+        view
+        returns (bool)
+    {
+        return _verifySignature(digest, signature);
+    }
+
+    function postExecute() external {}
+
+    function _verifySignature(bytes32 digest, bytes calldata signature)
+        internal
+        view
+        returns (bool)
+    {
+        (bytes32 keyHash, bytes calldata innerSignature) = _decodeData(signature);
 
         bytes storage pubkey = _getAccountStorage().pubkey[keyHash];
         (bytes32 x, bytes32 y) = P256.tryDecodePoint(pubkey);
 
         return WebAuthn.verify(
-            abi.encode(digest), false, WebAuthn.tryDecodeAuthCompactCalldata(signature), x, y
+            abi.encode(digest), false, WebAuthn.tryDecodeAuthCompactCalldata(innerSignature), x, y
         );
     }
 
