@@ -16,6 +16,8 @@ import {EIP712} from "solady/utils/EIP712.sol";
 contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
     error UnsupportedExecutionMode();
     error InvalidCaller();
+    error InvalidSignatureLength();
+    error InvalidSignatureS();
     error Unauthorized();
     error InvalidNonce();
     error ExcessiveInvalidation();
@@ -118,7 +120,7 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
     ) external onlyEntryPoint returns (uint256) {
         if (missingAccountFunds != 0) {
             (bool success,) = payable(msg.sender).call{value: missingAccountFunds}("");
-            (success);
+            (success); // ignore failure since it's the EntryPoint's job to verify
         }
 
         return _verifySignature(userOpHash, userOp.signature) ? 0 : 1;
@@ -129,7 +131,6 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         return ENTRY_POINT_V8;
     }
 
-    // https://eips.ethereum.org/EIPS/eip-4337
     function getNonce(uint192 key) external view returns (uint256) {
         Storage storage s = _getStorage();
         return _encodeNonce(key, s.nonceSequenceNumber[key]);
@@ -271,16 +272,21 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         returns (bool)
     {
         if (signature.length != 65) {
-            return false;
+            revert InvalidSignatureLength();
         }
 
         (bytes32 r, bytes32 s, uint8 v) = _decodeSignatureComponents(signature);
 
-        // https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/utils/cryptography/ECDSA.sol#L134-L145
+        // https://github.com/openzeppelin/openzeppelin-contracts/blob/v5.3.0/contracts/utils/cryptography/ECDSA.sol#L134-L145
         if (uint256(s) > 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0) {
-            return false;
+            revert InvalidSignatureS();
         }
 
+        // The reference implementation also checks the recovered address against the zero address
+        // indicating that the address cannot be recovered or not enough gas was provided. The code
+        // below performs this check implicitly and avoids making this additional check to reduce
+        // gas overhead. The difference is that it doesn't distinguish between the signer being the
+        // zero address and the signer being someone other than the owner (both are invalid)
         return ecrecover(digest, v, r, s) == address(this);
     }
 
