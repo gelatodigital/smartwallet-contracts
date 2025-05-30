@@ -195,7 +195,9 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         _getStorage().nonceSequenceNumber[key] = targetSeq;
     }
 
-    function _execute(bytes32 mode, bytes calldata executionData, bool mockSignature) internal {
+    function _execute(bytes32 mode, bytes calldata executionData, bool allowUnauthorized)
+        internal
+    {
         (bytes1 callType, bytes1 execType, bytes4 modeSelector,) = _decodeExecutionMode(mode);
 
         if (callType != CALL_TYPE_BATCH || execType != EXEC_TYPE_DEFAULT) {
@@ -210,7 +212,7 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
             // address(this)`.
             // If `msg.sender` is an authorized entry point, then `execute` MAY accept calls from
             // the entry point.
-            if (msg.sender != address(this) && msg.sender != entryPoint()) {
+            if (msg.sender != address(this) && msg.sender != entryPoint() && !allowUnauthorized) {
                 revert Unauthorized();
             }
 
@@ -231,7 +233,7 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
             // If `signature` length is 65, treat it as secp256k1 signature.
             // Otherwise, invoke the specified validator module.
             if (signature.length == 65) {
-                if (!_verifySignature(digest, signature) && !mockSignature) {
+                if (!_verifySignature(digest, signature) && !allowUnauthorized) {
                     revert Unauthorized();
                 }
 
@@ -244,7 +246,8 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
                 }
 
                 if (
-                    !validator.validate(calls, msg.sender, digest, innerSignature) && !mockSignature
+                    !validator.validate(calls, msg.sender, digest, innerSignature)
+                        && !allowUnauthorized
                 ) {
                     revert Unauthorized();
                 }
