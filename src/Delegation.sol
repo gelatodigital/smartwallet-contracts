@@ -18,6 +18,9 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
     error UnsupportedExecutionMode();
     error InvalidCaller();
     error InvalidValidator();
+    error InvalidSignatureLength();
+    error InvalidSignatureS();
+    error InvalidSignature();
     error Unauthorized();
     error InvalidNonce();
     error ExcessiveInvalidation();
@@ -135,7 +138,7 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
     ) external onlyEntryPoint returns (uint256) {
         if (missingAccountFunds != 0) {
             (bool success,) = payable(msg.sender).call{value: missingAccountFunds}("");
-            (success);
+            (success); // ignore failure since it's the EntryPoint's job to verify
         }
 
         // If `signature` length is 65, treat it as secp256k1 signature.
@@ -170,7 +173,6 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         return ENTRY_POINT_V8;
     }
 
-    // https://eips.ethereum.org/EIPS/eip-4337
     function getNonce(uint192 key) external view returns (uint256) {
         Storage storage s = _getStorage();
         return _encodeNonce(key, s.nonceSequenceNumber[key]);
@@ -369,12 +371,18 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
     {
         (bytes32 r, bytes32 s, uint8 v) = _decodeSignatureComponents(signature);
 
-        // https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/utils/cryptography/ECDSA.sol#L134-L145
+        // https://github.com/openzeppelin/openzeppelin-contracts/blob/v5.3.0/contracts/utils/cryptography/ECDSA.sol#L134-L145
         if (uint256(s) > 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0) {
-            return false;
+            revert InvalidSignatureS();
         }
 
-        return ecrecover(digest, v, r, s) == address(this);
+        address signer = ecrecover(digest, v, r, s);
+
+        if (signer == address(0)) {
+            revert InvalidSignature();
+        }
+
+        return signer == address(this);
     }
 
     function _computeDigest(bytes32 mode, Call[] calldata calls, uint256 nonce)
