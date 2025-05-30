@@ -20,6 +20,7 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
     error InvalidValidator();
     error InvalidSignatureLength();
     error InvalidSignatureS();
+    error InvalidSignature();
     error Unauthorized();
     error InvalidNonce();
     error ExcessiveInvalidation();
@@ -372,12 +373,13 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
             revert InvalidSignatureS();
         }
 
-        // The reference implementation also checks the recovered address against the zero address
-        // indicating that the address cannot be recovered or not enough gas was provided. The code
-        // below performs this check implicitly and avoids making this additional check to reduce
-        // gas overhead. The difference is that it doesn't distinguish between the signer being the
-        // zero address and the signer being someone other than the owner (both are invalid)
-        return ecrecover(digest, v, r, s) == address(this);
+        address signer = ecrecover(digest, v, r, s);
+
+        if (signer == address(0)) {
+            revert InvalidSignature();
+        }
+
+        return signer == address(this);
     }
 
     function _computeDigest(bytes32 mode, Call[] calldata calls, uint256 nonce)
