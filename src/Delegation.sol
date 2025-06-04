@@ -195,9 +195,7 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         _getStorage().nonceSequenceNumber[key] = targetSeq;
     }
 
-    function _execute(bytes32 mode, bytes calldata executionData, bool allowUnauthorized)
-        internal
-    {
+    function _execute(bytes32 mode, bytes calldata executionData, bool mockSignature) internal {
         (bytes1 callType, bytes1 execType, bytes4 modeSelector,) = _decodeExecutionMode(mode);
 
         if (callType != CALL_TYPE_BATCH || execType != EXEC_TYPE_DEFAULT) {
@@ -212,14 +210,19 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
             // address(this)`.
             // If `msg.sender` is an authorized entry point, then `execute` MAY accept calls from
             // the entry point.
-            if (msg.sender != address(this) && msg.sender != entryPoint() && !allowUnauthorized) {
+            if (msg.sender == address(this)) {
+                _executeCalls(calls);
+            } else if (msg.sender == entryPoint()) {
+                IValidator validator = transientValidator;
+                delete transientValidator;
+
+                _executeCalls(calls);
+
+                if (address(validator) != address(0)) {
+                    validator.postExecute();
+                }
+            } else {
                 revert Unauthorized();
-            }
-
-            _executeCalls(calls);
-
-            if (address(transientValidator) != address(0)) {
-                transientValidator.postExecute();
             }
         } else if (modeSelector == EXEC_MODE_OP_DATA) {
             bytes calldata opData = _decodeOpData(executionData);
@@ -233,7 +236,7 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
             // If `signature` length is 65, treat it as secp256k1 signature.
             // Otherwise, invoke the specified validator module.
             if (signature.length == 65) {
-                if (!_verifySignature(digest, signature) && !allowUnauthorized) {
+                if (!_verifySignature(digest, signature) && !mockSignature) {
                     revert Unauthorized();
                 }
 
@@ -246,8 +249,7 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
                 }
 
                 if (
-                    !validator.validate(calls, msg.sender, digest, innerSignature)
-                        && !allowUnauthorized
+                    !validator.validate(calls, msg.sender, digest, innerSignature) && !mockSignature
                 ) {
                     revert Unauthorized();
                 }
