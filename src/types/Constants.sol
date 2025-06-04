@@ -10,3 +10,5 @@ bytes4 constant EXEC_MODE_OP_DATA = 0x78210001;
 
 // https://eips.ethereum.org/EIPS/eip-4337
 address constant ENTRY_POINT_V8 = 0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108;
+
+address constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
