@@ -16,7 +16,7 @@ If you want to deploy contracts, you also need to have:
 
 ## Setup Guide
 
-Periphery contracts in this repository relies on several external contracts which are added as submodules in this repo.
+Periphery contracts in this repository rely on several external contracts which are added as submodules in this repo.
 
 To install submodules:
 
