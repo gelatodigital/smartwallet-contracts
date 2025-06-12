@@ -25,6 +25,9 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
     error InvalidNonce();
     error ExcessiveInvalidation();
 
+    event ValidatorAdded(IValidator validator);
+    event ValidatorRemoved(IValidator validator);
+
     // https://eips.ethereum.org/EIPS/eip-7201
     /// @custom:storage-location erc7201:gelato.delegation.storage
     struct Storage {
@@ -162,10 +165,16 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
 
     function addValidator(IValidator validator) external onlyThis {
         _getStorage().validatorEnabled[validator] = true;
+        emit ValidatorAdded(validator);
     }
 
     function removeValidator(IValidator validator) external onlyThis {
         delete _getStorage().validatorEnabled[validator];
+        emit ValidatorRemoved(validator);
+    }
+
+    function isValidatorEnabled(IValidator validator) external view returns (bool) {
+        return _getStorage().validatorEnabled[validator];
     }
 
     function entryPoint() public pure returns (address) {
