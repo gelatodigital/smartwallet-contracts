@@ -4,6 +4,7 @@ pragma solidity ^0.8.29;
 import {IERC7821} from "./interfaces/IERC7821.sol";
 import {IERC1271} from "./interfaces/IERC1271.sol";
 import {IERC4337} from "./interfaces/IERC4337.sol";
+import {IValidator} from "./interfaces/IValidator.sol";
 import {
     CALL_TYPE_BATCH,
     EXEC_TYPE_DEFAULT,
@@ -16,6 +17,7 @@ import {EIP712} from "solady/utils/EIP712.sol";
 contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
     error UnsupportedExecutionMode();
     error InvalidCaller();
+    error InvalidValidator();
     error InvalidSignatureLength();
     error InvalidSignatureS();
     error InvalidSignature();
@@ -23,11 +25,17 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
     error InvalidNonce();
     error ExcessiveInvalidation();
 
+    event ValidatorAdded(IValidator validator);
+    event ValidatorRemoved(IValidator validator);
+
     // https://eips.ethereum.org/EIPS/eip-7201
     /// @custom:storage-location erc7201:gelato.delegation.storage
     struct Storage {
         mapping(uint192 => uint64) nonceSequenceNumber;
+        mapping(IValidator => bool) validatorEnabled;
     }
+
+    IValidator transient transientValidator;
 
     // keccak256(abi.encode(uint256(keccak256("gelato.delegation.storage")) - 1)) &
     // ~bytes32(uint256(0xff));
@@ -111,7 +119,19 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         view
         returns (bytes4)
     {
-        return _verifySignature(digest, signature) ? bytes4(0x1626ba7e) : bytes4(0xffffffff);
+        // If `signature` length is 65, treat it as secp256k1 signature.
+        // Otherwise, invoke the specified validator module.
+        if (signature.length == 65) {
+            return _verifySignature(digest, signature) ? bytes4(0x1626ba7e) : bytes4(0xffffffff);
+        }
+
+        (IValidator validator, bytes calldata innerSignature) = _decodeValidator(signature);
+
+        if (!_getStorage().validatorEnabled[validator]) {
+            revert InvalidValidator();
+        }
+
+        return validator.isValidSignature(digest, innerSignature);
     }
 
     function validateUserOp(
@@ -124,7 +144,37 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
             (success); // ignore failure since it's the EntryPoint's job to verify
         }
 
-        return _verifySignature(userOpHash, userOp.signature) ? 0 : 1;
+        // If `signature` length is 65, treat it as secp256k1 signature.
+        // Otherwise, invoke the specified validator module.
+        if (userOp.signature.length == 65) {
+            return _verifySignature(userOpHash, userOp.signature) ? 0 : 1;
+        }
+
+        (IValidator validator, bytes calldata innerSignature) = _decodeValidator(userOp.signature);
+
+        if (!_getStorage().validatorEnabled[validator]) {
+            revert InvalidValidator();
+        }
+
+        transientValidator = validator;
+
+        Call[] calldata calls = _decodeCallsFromExecute(userOp.callData);
+
+        return validator.validate(calls, msg.sender, userOpHash, innerSignature) ? 0 : 1;
+    }
+
+    function addValidator(IValidator validator) external onlyThis {
+        _getStorage().validatorEnabled[validator] = true;
+        emit ValidatorAdded(validator);
+    }
+
+    function removeValidator(IValidator validator) external onlyThis {
+        delete _getStorage().validatorEnabled[validator];
+        emit ValidatorRemoved(validator);
+    }
+
+    function isValidatorEnabled(IValidator validator) external view returns (bool) {
+        return _getStorage().validatorEnabled[validator];
     }
 
     function entryPoint() public pure returns (address) {
@@ -145,7 +195,7 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
             revert InvalidNonce();
         }
 
-        // Limit how many nonces can be invalidated at once
+        // Limit how many nonces can be invalidated at once.
         unchecked {
             uint64 delta = targetSeq - currentSeq;
             if (delta > type(uint16).max) revert ExcessiveInvalidation();
@@ -154,9 +204,7 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         _getStorage().nonceSequenceNumber[key] = targetSeq;
     }
 
-    function _execute(bytes32 mode, bytes calldata executionData, bool allowUnauthorized)
-        internal
-    {
+    function _execute(bytes32 mode, bytes calldata executionData, bool mockSignature) internal {
         (bytes1 callType, bytes1 execType, bytes4 modeSelector,) = _decodeExecutionMode(mode);
 
         if (callType != CALL_TYPE_BATCH || execType != EXEC_TYPE_DEFAULT) {
@@ -171,11 +219,20 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
             // address(this)`.
             // If `msg.sender` is an authorized entry point, then `execute` MAY accept calls from
             // the entry point.
-            if (msg.sender != address(this) && msg.sender != entryPoint() && !allowUnauthorized) {
+            if (msg.sender == address(this)) {
+                _executeCalls(calls);
+            } else if (msg.sender == entryPoint()) {
+                IValidator validator = transientValidator;
+                delete transientValidator;
+
+                _executeCalls(calls);
+
+                if (address(validator) != address(0)) {
+                    validator.postExecute();
+                }
+            } else {
                 revert Unauthorized();
             }
-
-            _executeCalls(calls);
         } else if (modeSelector == EXEC_MODE_OP_DATA) {
             bytes calldata opData = _decodeOpData(executionData);
             bytes calldata signature = _decodeSignature(opData);
@@ -185,11 +242,31 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
 
             // If `opData` is not empty, the implementation SHOULD use the signature encoded in
             // `opData` to determine if the caller can perform the execution.
-            if (!_verifySignature(digest, signature) && !allowUnauthorized) {
-                revert Unauthorized();
-            }
+            // If `signature` length is 65, treat it as secp256k1 signature.
+            // Otherwise, invoke the specified validator module.
+            if (signature.length == 65) {
+                if (!_verifySignature(digest, signature) && !mockSignature) {
+                    revert Unauthorized();
+                }
 
-            _executeCalls(calls);
+                _executeCalls(calls);
+            } else {
+                (IValidator validator, bytes calldata innerSignature) = _decodeValidator(signature);
+
+                if (!_getStorage().validatorEnabled[validator]) {
+                    revert InvalidValidator();
+                }
+
+                if (
+                    !validator.validate(calls, msg.sender, digest, innerSignature) && !mockSignature
+                ) {
+                    revert Unauthorized();
+                }
+
+                _executeCalls(calls);
+
+                validator.postExecute();
+            }
         } else {
             revert UnsupportedExecutionMode();
         }
@@ -204,7 +281,7 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
 
             if (!success) {
                 assembly {
-                    revert(add(data, 0x20), mload(data))
+                    revert(add(data, 32), mload(data))
                 }
             }
         }
@@ -215,11 +292,27 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         pure
         returns (Call[] calldata calls)
     {
-        // If `opData` is empty, `executionData` is simply `abi.encode(calls)`.
-        // We decode this from calldata rather than abi.decode which avoids a memory copy
+        // `executionData` is simply `abi.encode(calls)`.
+        // We decode this from calldata rather than abi.decode which avoids a memory copy.
         assembly {
             let offset := add(executionData.offset, calldataload(executionData.offset))
-            calls.offset := add(offset, 0x20)
+            calls.offset := add(offset, 32)
+            calls.length := calldataload(offset)
+        }
+    }
+
+    function _decodeCallsFromExecute(bytes calldata callData)
+        internal
+        pure
+        returns (Call[] calldata calls)
+    {
+        // `callData` is the call to `execute(bytes32 mode,bytes calldata executionData)` and
+        // `executionData` is simply `abi.encode(calls)`.
+        // We decode this from calldata rather than abi.decode which avoids a memory copy.
+        assembly {
+            let executionData := add(callData.offset, 100)
+            let offset := add(executionData, calldataload(executionData))
+            calls.offset := add(offset, 32)
             calls.length := calldataload(offset)
         }
     }
@@ -230,10 +323,10 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         returns (bytes calldata opData)
     {
         // If `opData` is not empty, `executionData` is `abi.encode(calls, opData)`.
-        // We decode this from calldata rather than abi.decode which avoids a memory copy
+        // We decode this from calldata rather than abi.decode which avoids a memory copy.
         assembly {
-            let offset := add(executionData.offset, calldataload(add(executionData.offset, 0x20)))
-            opData.offset := add(offset, 0x20)
+            let offset := add(executionData.offset, calldataload(add(executionData.offset, 32)))
+            opData.offset := add(offset, 32)
             opData.length := calldataload(offset)
         }
     }
@@ -262,8 +355,23 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
     {
         assembly {
             r := calldataload(signature.offset)
-            s := calldataload(add(signature.offset, 0x20))
-            v := byte(0, calldataload(add(signature.offset, 0x40)))
+            s := calldataload(add(signature.offset, 32))
+            v := byte(0, calldataload(add(signature.offset, 64)))
+        }
+    }
+
+    function _decodeValidator(bytes calldata signature)
+        internal
+        pure
+        returns (IValidator validator, bytes calldata data)
+    {
+        // `signature` is `abi.encodePacked(validator, data)`.
+        // We decode this from calldata rather than abi.decode which avoids a memory copy.
+        assembly {
+            validator := shr(96, calldataload(signature.offset))
+
+            data.offset := add(signature.offset, 20)
+            data.length := sub(signature.length, 20)
         }
     }
 
@@ -272,10 +380,6 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         view
         returns (bool)
     {
-        if (signature.length != 65) {
-            revert InvalidSignatureLength();
-        }
-
         (bytes32 r, bytes32 s, uint8 v) = _decodeSignatureComponents(signature);
 
         // https://github.com/openzeppelin/openzeppelin-contracts/blob/v5.3.0/contracts/utils/cryptography/ECDSA.sol#L134-L145
