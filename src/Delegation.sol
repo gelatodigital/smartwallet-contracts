@@ -145,10 +145,12 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
             (success); // ignore failure since it's the EntryPoint's job to verify
         }
 
+        bytes32 digest = ECDSA.toEthSignedMessageHash(userOpHash);
+
         // If `signature` length is 65, treat it as secp256k1 signature.
         // Otherwise, invoke the specified validator module.
         if (userOp.signature.length == 65) {
-            return _verifySignature(ECDSA.toEthSignedMessageHash(userOpHash), userOp.signature) ? 0 : 1;
+            return _verifySignature(digest, userOp.signature) ? 0 : 1;
         }
 
         (IValidator validator, bytes calldata innerSignature) = _decodeValidator(userOp.signature);
@@ -161,7 +163,7 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
 
         Call[] calldata calls = _decodeCallsFromExecute(userOp.callData);
 
-        return validator.validate(calls, msg.sender, userOpHash, innerSignature) ? 0 : 1;
+        return validator.validate(calls, msg.sender, digest, innerSignature) ? 0 : 1;
     }
 
     function addValidator(IValidator validator) external onlyThis {
