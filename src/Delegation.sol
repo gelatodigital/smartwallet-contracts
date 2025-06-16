@@ -12,6 +12,7 @@ import {
     EXEC_MODE_OP_DATA,
     ENTRY_POINT_V8
 } from "./types/Constants.sol";
+import {ECDSA} from "solady/utils/ECDSA.sol";
 import {EIP712} from "solady/utils/EIP712.sol";
 
 contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
@@ -147,7 +148,7 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         // If `signature` length is 65, treat it as secp256k1 signature.
         // Otherwise, invoke the specified validator module.
         if (userOp.signature.length == 65) {
-            return _verifySignature(userOpHash, userOp.signature) ? 0 : 1;
+            return _verifySignature(ECDSA.toEthSignedMessageHash(userOpHash), userOp.signature) ? 0 : 1;
         }
 
         (IValidator validator, bytes calldata innerSignature) = _decodeValidator(userOp.signature);
