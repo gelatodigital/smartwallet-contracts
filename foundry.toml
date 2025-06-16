@@ -15,6 +15,7 @@ basecampTestnet = "https://rpc.basecamp.t.raas.gelato.cloud"
 storyTestnet = "https://aeneid.storyrpc.io"
 arbitrumSepolia = "https://arbitrum-sepolia.drpc.org"
 flowTestnet = "https://testnet.evm.nodes.onflow.org"
+thriveTestnet = "https://rpc.thrive-testnet.t.raas.gelato.cloud"
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
 
