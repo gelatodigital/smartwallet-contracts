@@ -5,11 +5,17 @@ import {ENTRY_POINT_V7} from "../types/Constants.sol";
 
 contract EntryPointV7Proxy {
     fallback() external payable {
-        (bool success, bytes memory data) = ENTRY_POINT_V7.call{value: msg.value}(msg.data);
+        bytes calldata data;
+        assembly {
+            data.offset := 1
+            data.length := sub(calldatasize(), 1)
+        }
+
+        (bool success, bytes memory result) = ENTRY_POINT_V7.call(data);
 
         if (!success) {
             assembly {
-                revert(add(data, 32), mload(data))
+                revert(add(result, 32), mload(result))
             }
         }
     }
