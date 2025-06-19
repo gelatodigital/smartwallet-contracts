@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.29;
 
+import {IERC165} from "./interfaces/IERC165.sol";
 import {IERC7821} from "./interfaces/IERC7821.sol";
 import {IERC1271} from "./interfaces/IERC1271.sol";
 import {IERC4337} from "./interfaces/IERC4337.sol";
+import {IERC721TokenReceiver} from "./interfaces/IERC721.sol";
+import {IERC1155TokenReceiver} from "./interfaces/IERC1155.sol";
 import {IValidator} from "./interfaces/IValidator.sol";
 import {
     CALL_TYPE_BATCH,
@@ -14,19 +17,26 @@ import {
 } from "./types/Constants.sol";
 import {EIP712} from "solady/utils/EIP712.sol";
 
-contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
+contract Delegation is
+    IERC165,
+    IERC7821,
+    IERC1271,
+    IERC4337,
+    IERC721TokenReceiver,
+    IERC1155TokenReceiver,
+    EIP712
+{
     error UnsupportedExecutionMode();
     error InvalidCaller();
     error InvalidValidator();
-    error InvalidSignatureLength();
     error InvalidSignatureS();
     error InvalidSignature();
     error Unauthorized();
     error InvalidNonce();
     error ExcessiveInvalidation();
 
-    event ValidatorAdded(IValidator validator);
-    event ValidatorRemoved(IValidator validator);
+    event ValidatorAdded(IValidator indexed validator);
+    event ValidatorRemoved(IValidator indexed validator);
 
     // https://eips.ethereum.org/EIPS/eip-7201
     /// @custom:storage-location erc7201:gelato.delegation.storage
@@ -34,8 +44,6 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         mapping(uint192 => uint64) nonceSequenceNumber;
         mapping(IValidator => bool) validatorEnabled;
     }
-
-    IValidator transient transientValidator;
 
     // keccak256(abi.encode(uint256(keccak256("gelato.delegation.storage")) - 1)) &
     // ~bytes32(uint256(0xff));
@@ -113,6 +121,12 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         return true;
     }
 
+    function supportsInterface(bytes4 interfaceID) external pure returns (bool) {
+        return interfaceID == this.supportsInterface.selector
+            || interfaceID == this.onERC721Received.selector
+            || interfaceID == this.onERC1155Received.selector ^ this.onERC1155BatchReceived.selector;
+    }
+
     // https://eips.ethereum.org/EIPS/eip-1271
     function isValidSignature(bytes32 digest, bytes calldata signature)
         external
@@ -156,11 +170,25 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
             revert InvalidValidator();
         }
 
-        transientValidator = validator;
+        _storeValidator(userOpHash, validator);
 
-        Call[] calldata calls = _decodeCallsFromExecute(userOp.callData);
+        Call[] calldata calls = _decodeCalls(userOp.callData[4:]);
 
         return validator.validate(calls, msg.sender, userOpHash, innerSignature) ? 0 : 1;
+    }
+
+    function executeUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash)
+        external
+        onlyEntryPoint
+    {
+        Call[] calldata calls = _decodeCalls(userOp.callData[4:]);
+
+        _executeCalls(calls);
+
+        IValidator validator = _loadValidator(userOpHash);
+        if (address(validator) != address(0)) {
+            validator.postExecute();
+        }
     }
 
     function addValidator(IValidator validator) external onlyThis {
@@ -217,22 +245,11 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
             // https://eips.ethereum.org/EIPS/eip-7821
             // If `opData` is empty, the implementation SHOULD require that `msg.sender ==
             // address(this)`.
-            // If `msg.sender` is an authorized entry point, then `execute` MAY accept calls from
-            // the entry point.
-            if (msg.sender == address(this)) {
-                _executeCalls(calls);
-            } else if (msg.sender == entryPoint()) {
-                IValidator validator = transientValidator;
-                delete transientValidator;
-
-                _executeCalls(calls);
-
-                if (address(validator) != address(0)) {
-                    validator.postExecute();
-                }
-            } else {
+            if (msg.sender != address(this)) {
                 revert Unauthorized();
             }
+
+            _executeCalls(calls);
         } else if (modeSelector == EXEC_MODE_OP_DATA) {
             bytes calldata opData = _decodeOpData(executionData);
             bytes calldata signature = _decodeSignature(opData);
@@ -296,22 +313,6 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         // We decode this from calldata rather than abi.decode which avoids a memory copy.
         assembly {
             let offset := add(executionData.offset, calldataload(executionData.offset))
-            calls.offset := add(offset, 32)
-            calls.length := calldataload(offset)
-        }
-    }
-
-    function _decodeCallsFromExecute(bytes calldata callData)
-        internal
-        pure
-        returns (Call[] calldata calls)
-    {
-        // `callData` is the call to `execute(bytes32 mode,bytes calldata executionData)` and
-        // `executionData` is simply `abi.encode(calls)`.
-        // We decode this from calldata rather than abi.decode which avoids a memory copy.
-        assembly {
-            let executionData := add(callData.offset, 100)
-            let offset := add(executionData, calldataload(executionData))
             calls.offset := add(offset, 32)
             calls.length := calldataload(offset)
         }
@@ -430,12 +431,6 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         seq = uint64(nonce);
     }
 
-    function _getStorage() internal pure returns (Storage storage $) {
-        assembly {
-            $.slot := STORAGE_LOCATION
-        }
-    }
-
     function _decodeExecutionMode(bytes32 mode)
         internal
         pure
@@ -448,6 +443,24 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
             execType := shl(8, mode)
             modeSelector := shl(48, mode)
             modePayload := shl(80, mode)
+        }
+    }
+
+    function _getStorage() internal pure returns (Storage storage $) {
+        assembly {
+            $.slot := STORAGE_LOCATION
+        }
+    }
+
+    function _storeValidator(bytes32 userOpHash, IValidator validator) internal {
+        assembly {
+            tstore(userOpHash, validator)
+        }
+    }
+
+    function _loadValidator(bytes32 userOpHash) internal view returns (IValidator validator) {
+        assembly {
+            validator := tload(userOpHash)
         }
     }
 
