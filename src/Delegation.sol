@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.29;
 
+import {IERC165} from "./interfaces/IERC165.sol";
 import {IERC7821} from "./interfaces/IERC7821.sol";
 import {IERC1271} from "./interfaces/IERC1271.sol";
 import {IERC4337} from "./interfaces/IERC4337.sol";
+import {IERC721TokenReceiver} from "./interfaces/IERC721.sol";
+import {IERC1155TokenReceiver} from "./interfaces/IERC1155.sol";
 import {IValidator} from "./interfaces/IValidator.sol";
 import {
     CALL_TYPE_BATCH,
@@ -14,7 +17,15 @@ import {
 } from "./types/Constants.sol";
 import {EIP712} from "solady/utils/EIP712.sol";
 
-contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
+contract Delegation is
+    IERC165,
+    IERC7821,
+    IERC1271,
+    IERC4337,
+    IERC721TokenReceiver,
+    IERC1155TokenReceiver,
+    EIP712
+{
     error UnsupportedExecutionMode();
     error InvalidCaller();
     error InvalidValidator();
@@ -109,6 +120,12 @@ contract Delegation is IERC7821, IERC1271, IERC4337, EIP712 {
         }
 
         return true;
+    }
+
+    function supportsInterface(bytes4 interfaceID) external pure returns (bool) {
+        return interfaceID == this.supportsInterface.selector
+            || interfaceID == this.onERC721Received.selector
+            || interfaceID == this.onERC1155Received.selector ^ this.onERC1155BatchReceived.selector;
     }
 
     // https://eips.ethereum.org/EIPS/eip-1271
