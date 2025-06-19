@@ -29,7 +29,6 @@ contract Delegation is
     error UnsupportedExecutionMode();
     error InvalidCaller();
     error InvalidValidator();
-    error InvalidSignatureLength();
     error InvalidSignatureS();
     error InvalidSignature();
     error Unauthorized();
