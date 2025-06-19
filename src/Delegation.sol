@@ -36,8 +36,8 @@ contract Delegation is
     error InvalidNonce();
     error ExcessiveInvalidation();
 
-    event ValidatorAdded(IValidator validator);
-    event ValidatorRemoved(IValidator validator);
+    event ValidatorAdded(IValidator indexed validator);
+    event ValidatorRemoved(IValidator indexed validator);
 
     // https://eips.ethereum.org/EIPS/eip-7201
     /// @custom:storage-location erc7201:gelato.delegation.storage
