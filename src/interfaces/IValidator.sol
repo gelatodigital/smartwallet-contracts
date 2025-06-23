@@ -7,9 +7,9 @@ import {IERC7821} from "./IERC7821.sol";
 // Inspired by ERC-7579.
 // https://eips.ethereum.org/EIPS/eip-7579
 interface IValidator is IERC1271 {
-    // Called by `validateUserOp` when using ERC-4337.
     // Called by `execute` when not using ERC-4337 and execution mode is `EXEC_MODE_OP_DATA` and
     // signature length is not 65 bytes.
+    // Called by `validateUserOp` when using ERC-4337 and signature length is not 65 bytes.
     // Should return false on signature mismatch, any other error must revert.
     // Should not return early on signature mismatch to allow for accurate gas estimation.
     function validate(
@@ -20,6 +20,7 @@ interface IValidator is IERC1271 {
     ) external returns (bool);
 
     // Called by `execute` after `calls` have been executed.
+    // Called by `executeUserOp` after `calls` have been executed.
     // Validators are expected to use transient storage (EIP-1153) to pass context between
     // `validate` and `postExecute`.
     // WARNING: this context should be scoped to each account since `validate` could be called by
