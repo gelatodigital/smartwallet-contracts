@@ -20,4 +20,6 @@ interface IERC4337 {
         bytes32 userOpHash,
         uint256 missingAccountFunds
     ) external returns (uint256);
+
+    function executeUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash) external;
 }
