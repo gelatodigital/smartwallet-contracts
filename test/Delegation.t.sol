@@ -4,7 +4,7 @@ pragma solidity ^0.8.29;
 import {Counter} from "./Counter.sol";
 import {ECDSASignature} from "./ECDSASignature.sol";
 import {Delegation} from "../src/Delegation.sol";
-import {Simulation} from "../src/Simulation.sol";
+import {Simulation} from "../src/peripheries/Simulation.sol";
 import {PasskeyValidator} from "../src/validators/Passkey.sol";
 import {Test} from "forge-std/Test.sol";
 

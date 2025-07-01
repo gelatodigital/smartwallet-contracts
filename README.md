@@ -7,12 +7,10 @@ This repository contains the smart contracts for the Gelato Smart Wallet.
 Before you begin, ensure you have the following installed:
 
 - [Foundry](https://book.getfoundry.sh/getting-started/installation)
+- [Yarn](https://classic.yarnpkg.com/lang/en/docs/install/#mac-stable)
 - [Git](https://git-scm.com/downloads)
 
-If you want to deploy contracts, you also need to have:
-
-- An EOA with sufficient funds for deployment on the target network
-- Access to an RPC endpoint for your target network
+If you want to deploy contracts, you also need to have a `SPONSOR_API_KEY` which you can get [here](https://app.gelato.network/relay).
 
 ## Setup Guide
 
@@ -25,6 +23,12 @@ chmod +x install-submodules.sh
 
 ./install-submodules.sh
 ```
+
+To install packages:
+```bash
+yarn install
+```
+
 
 ## Deployment Guide
 
@@ -39,12 +43,8 @@ cp .env.example .env
 2. Configure your environment variables in `.env`:
 
 ```bash
-# Required for deployment
-PRIVATE_KEY=your_private_key_here
-RPC_URL=your_rpc_url_here
-
-# Required for verification
-ETHERSCAN_API_KEY=your_etherscan_api_key_here
+SPONSOR_API_KEY="" # https://app.gelato.network/relay
+TARGET_ENV="" # either 'testnet' or 'mainnet'
 ```
 
 3. Load the environment variables:
@@ -55,20 +55,20 @@ source .env
 
 ### 2. Network Configuration
 
-Add your target chain's RPC endpoint to the `foundry.toml` configuration:
+Add your target chain to the `deploy/chains.ts` configuration:
 
-1. Open `foundry.toml`
-2. Locate the `rpc_endpoints` section
-3. Add your chain's RPC URL following the existing format.
+1. Open `deploy/chains.ts`
+2. Locate the `testnets` or `mainnets` section
+3. Add your chain object following the existing format
+
+The chain object can be imported from `viem/chains`. If the chain is not exported by viem you can add it manually. An example of this is `thriveTestnet` and `abcTestnet`.
 
 ### 3. Deploy Contracts
 
-Run the deployment script using Forge:
+Run the deployment script:
 
 ```bash
-forge script ./script/DeployDelegation.s.sol \
-    --rpc-url $RPC_URL \
-    --broadcast
+yarn deploy
 ```
 
 ### 4. Verify Contracts
@@ -83,14 +83,6 @@ forge verify-contract <DEPLOYED_ADDRESS> \
     --verifier-url <VERIFIER_URL> \
     --etherscan-api-key $ETHERSCAN_API_KEY
 ```
-
-### 5. Documentation
-
-Create a new branch for the deployment documentation:
-
-1. Create a branch named `deployment/<chainId>`. Make sure to include the name of the network in the title of the PR.
-2. Include the broadcast logs from `broadcast/DeployDelegation.s.sol`
-3. Submit a pull request with the deployment details
 
 ## Support
 
