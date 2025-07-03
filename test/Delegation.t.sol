@@ -198,7 +198,7 @@ contract DelegationTest is ECDSASignature, Test {
 
             uint192 key = 0;
 
-            bytes memory data = abi.encode(keyHash, passkeySignature);
+            bytes memory data = abi.encodePacked(keyHash, passkeySignature);
             bytes memory signature = abi.encodePacked(passkeyValidator, data);
             bytes memory opData = abi.encodePacked(key, signature);
 

@@ -60,14 +60,13 @@ contract PasskeyValidator is IValidator {
         pure
         returns (bytes32 keyHash, bytes calldata signature)
     {
-        // `data` is `abi.encode(keyHash, signature)`.
+        // `data` is `abi.encodePacked(keyHash, signature)`.
         // We decode this from calldata rather than abi.decode which avoids a memory copy.
         assembly {
             keyHash := calldataload(data.offset)
 
-            let offset := add(data.offset, calldataload(add(data.offset, 0x20)))
-            signature.offset := add(offset, 0x20)
-            signature.length := calldataload(offset)
+            signature.offset := add(data.offset, 32)
+            signature.length := sub(data.length, 32)
         }
     }
 

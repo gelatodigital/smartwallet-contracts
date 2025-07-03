@@ -17,15 +17,15 @@ contract SessionValidator is IValidator {
 
     mapping(address => AccountStorage) account;
 
-    function addSession(address owner, uint256 expiry) external {
+    function addSession(address signer, uint256 expiry) external {
         if (expiry == 0) {
             revert InvalidExpiry();
         }
-        _getAccountStorage().expiry[owner] = expiry;
+        _getAccountStorage().expiry[signer] = expiry;
     }
 
-    function removeSession(address owner) external {
-        delete _getAccountStorage().expiry[owner];
+    function removeSession(address signer) external {
+        delete _getAccountStorage().expiry[signer];
     }
 
     function isValidSignature(bytes32 digest, bytes calldata signature)
@@ -51,9 +51,9 @@ contract SessionValidator is IValidator {
         view
         returns (bool)
     {
-        (address owner, bytes calldata innerSignature) = _decodeData(signature);
+        (address signer, bytes calldata innerSignature) = _decodeData(signature);
 
-        uint256 expiry = _getAccountStorage().expiry[owner];
+        uint256 expiry = _getAccountStorage().expiry[signer];
 
         if (expiry == 0) {
             revert InvalidSession();
@@ -70,28 +70,27 @@ contract SessionValidator is IValidator {
             revert InvalidSignatureS();
         }
 
-        address signer = ecrecover(digest, v, r, s);
+        address recovered = ecrecover(digest, v, r, s);
 
-        if (signer == address(0)) {
+        if (recovered == address(0)) {
             revert InvalidSignature();
         }
 
-        return signer == owner;
+        return recovered == signer;
     }
 
     function _decodeData(bytes calldata data)
         internal
         pure
-        returns (address owner, bytes calldata signature)
+        returns (address signer, bytes calldata signature)
     {
-        // `data` is `abi.encode(owner, signature)`.
+        // `data` is `abi.encodePacked(signer, signature)`.
         // We decode this from calldata rather than abi.decode which avoids a memory copy.
         assembly {
-            owner := calldataload(data.offset)
+            signer := shr(96, calldataload(data.offset))
 
-            let offset := add(data.offset, calldataload(add(data.offset, 0x14)))
-            signature.offset := add(offset, 0x14)
-            signature.length := calldataload(offset)
+            signature.offset := add(data.offset, 20)
+            signature.length := sub(data.length, 20)
         }
     }
 
