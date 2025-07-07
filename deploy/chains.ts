@@ -10,7 +10,6 @@ import {
   berachainBepolia,
   blast,
   blastSepolia,
-  botanixTestnet,
   bsc,
   ethernity,
   flowMainnet,
@@ -84,7 +83,29 @@ const abcTestnet: Chain = {
   testnet: true,
 };
 
-export const testnets: Chain[] = [
+const botanixTestnet: Chain = {
+  id: 3636,
+  name: 'Botanix Testnet',
+  nativeCurrency: {
+    name: 'Botanix',
+    symbol: 'BTC',
+    decimals: 18
+  },
+  rpcUrls: {
+    default: {
+      http: ['https://rpc.ankr.com/botanix_testnet'],
+    },
+  },
+  blockExplorers: {
+    default: {
+      name: 'Botanix Testnet Explorer',
+      url: 'https://testnet.botanixscan.io',
+    },
+  },
+  testnet: true,
+};
+
+export const TESTNETS: Chain[] = [
   flowTestnet,
   unichainSepolia,
   storyAeneid,
@@ -106,7 +127,7 @@ export const testnets: Chain[] = [
   abcTestnet,
 ];
 
-export const mainnets: Chain[] = [
+export const MAINNETS: Chain[] = [
   mainnet,
   optimism,
   bsc,
