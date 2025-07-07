@@ -1,8 +1,8 @@
 import { concatHex, createPublicClient, getCreate2Address, Hex, http } from "viem";
-import { DETERMINISTIC_DEPLOYER, TASK_POLL_INTERVAL } from "./constants";
+import { DETERMINISTIC_DEPLOYER, TASK_POLL_INTERVAL } from "./constants.js";
 import { execSync } from "child_process";
 import { GelatoRelay, TaskState } from "@gelatonetwork/relay-sdk-viem";
-import { MAINNETS, TESTNETS } from "./chains";
+import { MAINNETS, TESTNETS } from "./chains.js";
 
 export const deploy = async (
   contract: string,

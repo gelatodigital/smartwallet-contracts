@@ -1,6 +1,6 @@
 import { keccak256, toHex } from "viem";
-import { CONTRACTS, SALT } from "./constants";
-import { deploy } from "./deploy";
+import { CONTRACTS, SALT } from "./constants.js";
+import { deploy } from "./deploy.js";
 
 const main = async () => {
   const SPONSOR_API_KEY = process.env["SPONSOR_API_KEY"];
