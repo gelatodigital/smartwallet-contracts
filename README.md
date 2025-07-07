@@ -7,7 +7,7 @@ This repository contains the smart contracts for the Gelato Smart Wallet.
 Before you begin, ensure you have the following installed:
 
 - [Foundry](https://book.getfoundry.sh/getting-started/installation)
-- [Yarn](https://classic.yarnpkg.com/lang/en/docs/install/#mac-stable)
+- [pnpm](https://pnpm.io/installation)
 - [Git](https://git-scm.com/downloads)
 
 If you want to deploy contracts, you also need to have a `SPONSOR_API_KEY` which you can get [here](https://app.gelato.network/relay).
@@ -26,7 +26,7 @@ chmod +x install-submodules.sh
 
 To install packages:
 ```bash
-yarn install
+pnpm install
 ```
 
 
@@ -68,7 +68,7 @@ The chain object can be imported from `viem/chains`. If the chain is not exporte
 Run the deployment script:
 
 ```bash
-yarn deploy
+pnpm run deploy
 ```
 
 ### 4. Verify Contracts
