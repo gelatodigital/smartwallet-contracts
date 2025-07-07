@@ -49,7 +49,7 @@ cp .env.example .env
 ```bash
 SPONSOR_API_KEY="" # https://app.gelato.network/relay
 TARGET_ENV="" # either 'testnet' or 'mainnet'
-ETHERSCAN_API_KEY=your_etherscan_api_key_here
+ETHERSCAN_API_KEY=""
 ```
 
 3. Load the environment variables:
@@ -90,9 +90,9 @@ cp .env.example .env
 
 ```bash
 # Required for deployment
-PRIVATE_KEY=your_private_key_here
-RPC_URL=your_rpc_url_here
-ETHERSCAN_API_KEY=your_etherscan_api_key_here
+PRIVATE_KEY=""
+RPC_URL=""
+ETHERSCAN_API_KEY=""
 ```
 
 3. Load the environment variables:
@@ -105,8 +105,16 @@ source .env
 
 Run the deployment script using Forge:
 
+**Delegation:**
 ```bash
 forge script ./script/DeployDelegation.s.sol \
+    --rpc-url $RPC_URL \
+    --broadcast
+```
+
+**SessionValidator:**
+```bash
+forge script ./script/DeploySessionValidator.s.sol \
     --rpc-url $RPC_URL \
     --broadcast
 ```
@@ -115,9 +123,20 @@ forge script ./script/DeployDelegation.s.sol \
 
 After deployment, verify your contract on the network's block explorer:
 
+**Delegation:**
 ```bash
 forge verify-contract <DEPLOYED_ADDRESS> \
     ./src/Delegation.sol:Delegation \
+    --chain-id <CHAIN_ID> \
+    --verifier <etherscan|blockscout> \
+    --verifier-url <VERIFIER_URL> \
+    --etherscan-api-key $ETHERSCAN_API_KEY
+```
+
+**SessionValidator:**
+```bash
+forge verify-contract <DEPLOYED_ADDRESS> \
+    ./src/validators/Session.sol:SessionValidator \
     --chain-id <CHAIN_ID> \
     --verifier <etherscan|blockscout> \
     --verifier-url <VERIFIER_URL> \
