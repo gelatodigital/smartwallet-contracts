@@ -11,7 +11,7 @@ import {
   keccak256,
   toHex,
 } from "viem";
-import { mainnets, testnets } from "./chains";
+import { mainnets, testnets } from "./chains.js";
 
 const SALT: string = "gelato.deployer";
 const CONTRACT: string = "Delegation";

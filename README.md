@@ -12,6 +12,10 @@ Before you begin, ensure you have the following installed:
 
 If you want to deploy contracts, you also need to have a `SPONSOR_API_KEY` which you can get [here](https://app.gelato.network/relay).
 
+Alternatively, you can deploy contracts manually. For this you will need:
+- An EOA with sufficient funds for deployment on the target network
+- Access to an RPC endpoint for your target network
+
 ## Setup Guide
 
 Periphery contracts in this repository rely on several external contracts which are added as submodules in this repo.
@@ -30,7 +34,7 @@ pnpm install
 ```
 
 
-## Deployment Guide
+## Gasless Deployment Guide (Recommended)
 
 ### 1. Environment Setup
 
@@ -45,6 +49,7 @@ cp .env.example .env
 ```bash
 SPONSOR_API_KEY="" # https://app.gelato.network/relay
 TARGET_ENV="" # either 'testnet' or 'mainnet'
+ETHERSCAN_API_KEY=your_etherscan_api_key_here
 ```
 
 3. Load the environment variables:
@@ -71,7 +76,42 @@ Run the deployment script:
 pnpm run deploy
 ```
 
-### 4. Verify Contracts
+## Manual Deployment Guide
+
+### 1. Environment Setup
+
+1. Create a `.env` file in the root directory:
+
+```bash
+cp .env.example .env
+```
+
+2. Configure your environment variables in `.env`:
+
+```bash
+# Required for deployment
+PRIVATE_KEY=your_private_key_here
+RPC_URL=your_rpc_url_here
+ETHERSCAN_API_KEY=your_etherscan_api_key_here
+```
+
+3. Load the environment variables:
+
+```bash
+source .env
+```
+
+### 2. Deploy Contracts
+
+Run the deployment script using Forge:
+
+```bash
+forge script ./script/DeployDelegation.s.sol \
+    --rpc-url $RPC_URL \
+    --broadcast
+```
+
+## Verify Contracts
 
 After deployment, verify your contract on the network's block explorer:
 
