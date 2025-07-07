@@ -1,7 +1,7 @@
 {
   "license": "MIT",
   "scripts": {
-    "deploy": "yarn tsx deploy"
+    "deploy": "tsx deploy"
   },
   "dependencies": {
     "@gelatonetwork/relay-sdk-viem": "^1.4.0",
@@ -10,5 +10,6 @@
   "devDependencies": {
     "tsx": "^4.20.3",
     "typescript": "^5.8.3"
-  }
+  },
+  "packageManager": "pnpm@10.12.4"
 }
