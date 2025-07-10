@@ -10,6 +10,7 @@ import {
   berachainBepolia,
   blast,
   blastSepolia,
+  botanixTestnet,
   bsc,
   ethernity,
   flowMainnet,
@@ -78,28 +79,6 @@ const abcTestnet: Chain = {
     default: {
       name: "ABC Testnet Explorer",
       url: "https://explorer.abc.t.raas.gelato.cloud",
-    },
-  },
-  testnet: true,
-};
-
-const botanixTestnet: Chain = {
-  id: 3636,
-  name: 'Botanix Testnet',
-  nativeCurrency: {
-    name: 'Botanix',
-    symbol: 'BTC',
-    decimals: 18
-  },
-  rpcUrls: {
-    default: {
-      http: ['https://rpc.ankr.com/botanix_testnet'],
-    },
-  },
-  blockExplorers: {
-    default: {
-      name: 'Botanix Testnet Explorer',
-      url: 'https://testnet.botanixscan.io',
     },
   },
   testnet: true,
