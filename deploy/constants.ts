@@ -8,6 +8,6 @@ export const DETERMINISTIC_DEPLOYER: Address =
 export const TASK_POLL_INTERVAL = 2_000;
 
 export const CONTRACTS = [
-	"Delegation",
+  "Delegation",
   "SessionValidator"
 ];

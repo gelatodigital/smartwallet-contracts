@@ -57,8 +57,6 @@ export const deploy = async (
         return undefined;
       });
 
-    console.log("\t" + response?.taskId); // TODO
-
     if (!response) continue;
 
     while (true) {
