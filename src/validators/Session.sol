@@ -11,6 +11,9 @@ contract SessionValidator is IValidator {
     error InvalidSignatureS();
     error InvalidSignature();
 
+    event SessionAdded(address indexed signer, uint256 expiry);
+    event SessionRemoved(address indexed signer);
+
     struct AccountStorage {
         mapping(address => uint256) expiry;
     }
@@ -22,10 +25,16 @@ contract SessionValidator is IValidator {
             revert InvalidExpiry();
         }
         _getAccountStorage().expiry[signer] = expiry;
+        emit SessionAdded(signer, expiry);
     }
 
     function removeSession(address signer) external {
         delete _getAccountStorage().expiry[signer];
+        emit SessionRemoved(signer);
+    }
+
+    function getSessionExpiry(address signer) external view returns (uint256) {
+        return _getAccountStorage().expiry[signer];
     }
 
     function isValidSignature(bytes32 digest, bytes calldata signature)

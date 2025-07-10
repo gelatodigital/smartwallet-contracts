@@ -7,6 +7,9 @@ import {P256} from "solady/utils/P256.sol";
 import {WebAuthn} from "solady/utils/WebAuthn.sol";
 
 contract PasskeyValidator is IValidator {
+    event SignerAdded(bytes32 indexed keyHash);
+    event SignerRemoved(bytes32 indexed keyHash);
+
     struct AccountStorage {
         mapping(bytes32 => bytes) pubkey;
     }
@@ -16,10 +19,16 @@ contract PasskeyValidator is IValidator {
     function addSigner(bytes calldata pubkey) external {
         bytes32 keyHash = keccak256(pubkey);
         _getAccountStorage().pubkey[keyHash] = pubkey;
+        emit SignerAdded(keyHash);
     }
 
     function removeSigner(bytes32 keyHash) external {
         delete _getAccountStorage().pubkey[keyHash];
+        emit SignerRemoved(keyHash);
+    }
+
+    function getSignerPubkey(bytes32 keyHash) external view returns (bytes memory) {
+        return _getAccountStorage().pubkey[keyHash];
     }
 
     function isValidSignature(bytes32 digest, bytes calldata signature)
