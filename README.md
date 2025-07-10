@@ -7,10 +7,12 @@ This repository contains the smart contracts for the Gelato Smart Wallet.
 Before you begin, ensure you have the following installed:
 
 - [Foundry](https://book.getfoundry.sh/getting-started/installation)
+- [pnpm](https://pnpm.io/installation)
 - [Git](https://git-scm.com/downloads)
 
-If you want to deploy contracts, you also need to have:
+If you want to deploy contracts, you also need to have a `SPONSOR_API_KEY` which you can get [here](https://app.gelato.network/relay).
 
+Alternatively, you can deploy contracts manually. For this you will need:
 - An EOA with sufficient funds for deployment on the target network
 - Access to an RPC endpoint for your target network
 
@@ -26,7 +28,55 @@ chmod +x install-submodules.sh
 ./install-submodules.sh
 ```
 
-## Deployment Guide
+To install packages:
+```bash
+pnpm install
+```
+
+
+## Gasless Deployment Guide (Recommended)
+
+### 1. Environment Setup
+
+1. Create a `.env` file in the root directory:
+
+```bash
+cp .env.example .env
+```
+
+2. Configure your environment variables in `.env`:
+
+```bash
+SPONSOR_API_KEY="" # https://app.gelato.network/relay
+TARGET_ENV="" # either 'testnet' or 'mainnet'
+ETHERSCAN_API_KEY=your_etherscan_api_key_here
+```
+
+3. Load the environment variables:
+
+```bash
+source .env
+```
+
+### 2. Network Configuration
+
+Add your target chain to the `deploy/chains.ts` configuration:
+
+1. Open `deploy/chains.ts`
+2. Locate the `testnets` or `mainnets` section
+3. Add your chain object following the existing format
+
+The chain object can be imported from `viem/chains`. If the chain is not exported by viem you can add it manually. An example of this is `thriveTestnet` and `abcTestnet`.
+
+### 3. Deploy Contracts
+
+Run the deployment script:
+
+```bash
+pnpm run deploy
+```
+
+## Manual Deployment Guide
 
 ### 1. Environment Setup
 
@@ -42,8 +92,6 @@ cp .env.example .env
 # Required for deployment
 PRIVATE_KEY=your_private_key_here
 RPC_URL=your_rpc_url_here
-
-# Required for verification
 ETHERSCAN_API_KEY=your_etherscan_api_key_here
 ```
 
@@ -53,15 +101,7 @@ ETHERSCAN_API_KEY=your_etherscan_api_key_here
 source .env
 ```
 
-### 2. Network Configuration
-
-Add your target chain's RPC endpoint to the `foundry.toml` configuration:
-
-1. Open `foundry.toml`
-2. Locate the `rpc_endpoints` section
-3. Add your chain's RPC URL following the existing format.
-
-### 3. Deploy Contracts
+### 2. Deploy Contracts
 
 Run the deployment script using Forge:
 
@@ -71,7 +111,7 @@ forge script ./script/DeployDelegation.s.sol \
     --broadcast
 ```
 
-### 4. Verify Contracts
+## Verify Contracts
 
 After deployment, verify your contract on the network's block explorer:
 
@@ -83,14 +123,6 @@ forge verify-contract <DEPLOYED_ADDRESS> \
     --verifier-url <VERIFIER_URL> \
     --etherscan-api-key $ETHERSCAN_API_KEY
 ```
-
-### 5. Documentation
-
-Create a new branch for the deployment documentation:
-
-1. Create a branch named `deployment/<chainId>`. Make sure to include the name of the network in the title of the PR.
-2. Include the broadcast logs from `broadcast/DeployDelegation.s.sol`
-3. Submit a pull request with the deployment details
 
 ## Support
 
