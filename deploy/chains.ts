@@ -84,7 +84,7 @@ const abcTestnet: Chain = {
   testnet: true,
 };
 
-export const testnets: Chain[] = [
+export const TESTNETS: Chain[] = [
   flowTestnet,
   unichainSepolia,
   storyAeneid,
@@ -106,7 +106,7 @@ export const testnets: Chain[] = [
   abcTestnet,
 ];
 
-export const mainnets: Chain[] = [
+export const MAINNETS: Chain[] = [
   mainnet,
   optimism,
   bsc,
