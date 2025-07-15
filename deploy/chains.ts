@@ -12,6 +12,7 @@ import {
   blastSepolia,
   botanixTestnet,
   bsc,
+  eduChainTestnet,
   ethernity,
   flowMainnet,
   flowTestnet,
@@ -104,6 +105,7 @@ export const TESTNETS: Chain[] = [
   blastSepolia,
   basecampTestnet,
   abcTestnet,
+  eduChainTestnet
 ];
 
 export const MAINNETS: Chain[] = [
