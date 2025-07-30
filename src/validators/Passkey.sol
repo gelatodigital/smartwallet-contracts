@@ -14,7 +14,7 @@ contract PasskeyValidator is IValidator {
         mapping(bytes32 => bytes) pubkey;
     }
 
-    mapping(address => AccountStorage) account;
+    mapping(address => AccountStorage) internal _account;
 
     function addSigner(bytes calldata pubkey) external {
         bytes32 keyHash = keccak256(pubkey);
@@ -27,8 +27,12 @@ contract PasskeyValidator is IValidator {
         emit SignerRemoved(keyHash);
     }
 
-    function getSignerPubkey(bytes32 keyHash) external view returns (bytes memory) {
-        return _getAccountStorage().pubkey[keyHash];
+    function getSignerPubkey(address account, bytes32 keyHash)
+        external
+        view
+        returns (bytes memory)
+    {
+        return _account[account].pubkey[keyHash];
     }
 
     function isValidSignature(bytes32 digest, bytes calldata signature)
@@ -80,6 +84,6 @@ contract PasskeyValidator is IValidator {
     }
 
     function _getAccountStorage() internal view returns (AccountStorage storage) {
-        return account[msg.sender];
+        return _account[msg.sender];
     }
 }

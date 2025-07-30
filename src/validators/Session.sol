@@ -18,7 +18,7 @@ contract SessionValidator is IValidator {
         mapping(address => uint256) expiry;
     }
 
-    mapping(address => AccountStorage) account;
+    mapping(address => AccountStorage) internal _account;
 
     function addSession(address signer, uint256 expiry) external {
         if (expiry == 0) {
@@ -33,8 +33,8 @@ contract SessionValidator is IValidator {
         emit SessionRemoved(signer);
     }
 
-    function getSessionExpiry(address signer) external view returns (uint256) {
-        return _getAccountStorage().expiry[signer];
+    function getSessionExpiry(address account, address signer) external view returns (uint256) {
+        return _account[account].expiry[signer];
     }
 
     function isValidSignature(bytes32 digest, bytes calldata signature)
@@ -116,6 +116,6 @@ contract SessionValidator is IValidator {
     }
 
     function _getAccountStorage() internal view returns (AccountStorage storage) {
-        return account[msg.sender];
+        return _account[msg.sender];
     }
 }
