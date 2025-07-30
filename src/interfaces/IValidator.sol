@@ -26,5 +26,9 @@ interface IValidator is IERC1271 {
     // WARNING: this context should be scoped to each account since `validate` could be called by
     // another account (overwriting the context) before `postExecute` is called on the original
     // account.
+    // WARNING: this is not guaranteed to be called after `validate`.
+    // WARNING: when using ERC-4337 the EntryPoint may call `validateUserOp` and/or execute other
+    // UserOps between the `validate` and `postExecute`. This must be considered if for example
+    // checking the balance or gas left before and after.
     function postExecute() external;
 }
