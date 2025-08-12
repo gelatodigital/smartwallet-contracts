@@ -14,14 +14,19 @@ contract TransactionSimulation {
         address feeCollector,
         bool revertOnFailure
     ) external payable returns (bool success, bytes memory returnData) {
-        (success, returnData) = target.call{value: msg.value}(data);
+        (success, returnData) = target.call(data);
         if (!success && revertOnFailure) {
             assembly {
                 revert(add(returnData, 32), mload(returnData))
             }
         }
 
-        if (paymentToken != address(0) && paymentToken != NATIVE_TOKEN) {
+        if (paymentToken == NATIVE_TOKEN) {
+            feeCollector.call{value: msg.value}("");
+            return (success, returnData);
+        }
+
+        if (paymentToken != address(0)) {
             IERC20(paymentToken).transfer(feeCollector, 0);
         }
     }
