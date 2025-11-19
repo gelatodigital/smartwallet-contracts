@@ -4,6 +4,13 @@ pragma solidity ^0.8.29;
 import {PackedUserOperation} from "account-abstraction-v0.8/interfaces/PackedUserOperation.sol";
 import {EntryPoint} from "account-abstraction-v0.8/core/EntryPoint.sol";
 import {ISenderCreator} from "account-abstraction-v0.8/core/SenderCreator.sol";
+import {IAccountExecute} from "account-abstraction-v0.8/interfaces/IAccountExecute.sol";
+
+/* solhint-disable avoid-low-level-calls */
+/* solhint-disable no-inline-assembly */
+/* solhint-disable use-natspec */
+/* solhint-disable gas-increment-by-one */
+/* solhint-disable gas-strict-inequalities */
 
 address constant SENDER_CREATOR = 0x449ED7C3e6Fee6a97311d4b55475DF59C44AdD33;
 
@@ -12,10 +19,9 @@ contract EntryPointV8Simulation is EntryPoint {
         return ISenderCreator(SENDER_CREATOR);
     }
 
-    function simulateHandleOps(
-        PackedUserOperation[] calldata userOps,
-        address payable beneficiary
-    ) external {
+    function simulateHandleOps(PackedUserOperation[] calldata userOps, address payable beneficiary)
+        external
+    {
         uint256 opslen = userOps.length;
         UserOpInfo[] memory opInfos = new UserOpInfo[](opslen);
 
@@ -86,11 +92,30 @@ contract EntryPointV8Simulation is EntryPoint {
             _validatePaymasterPrepayment(0, userOp, outOpInfo);
         }
 
-        if (userOp.callData.length > 0) {
-            (bool success, bytes memory data) = userOp.sender.call(userOp.callData);
-            if (!success) {
-                assembly {
-                    revert(add(data, 32), mload(data))
+        bytes calldata callData = userOp.callData;
+        if (callData.length > 0) {
+            bytes4 selector;
+            assembly {
+                let len := callData.length
+                if gt(len, 3) { selector := calldataload(callData.offset) }
+            }
+
+            if (selector == IAccountExecute.executeUserOp.selector) {
+                bytes memory executeUserOpCallData =
+                    abi.encodeCall(IAccountExecute.executeUserOp, (userOp, outOpInfo.userOpHash));
+
+                (bool success, bytes memory data) = userOp.sender.call(executeUserOpCallData);
+                if (!success) {
+                    assembly {
+                        revert(add(data, 32), mload(data))
+                    }
+                }
+            } else {
+                (bool success, bytes memory data) = userOp.sender.call(callData);
+                if (!success) {
+                    assembly {
+                        revert(add(data, 32), mload(data))
+                    }
                 }
             }
         }
