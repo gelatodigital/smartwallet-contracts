@@ -5,6 +5,8 @@ import {PackedUserOperation} from "account-abstraction-v0.8/interfaces/PackedUse
 import {EntryPoint} from "account-abstraction-v0.8/core/EntryPoint.sol";
 import {ISenderCreator} from "account-abstraction-v0.8/core/SenderCreator.sol";
 import {IAccountExecute} from "account-abstraction-v0.8/interfaces/IAccountExecute.sol";
+import {IPaymaster} from "account-abstraction-v0.8/interfaces/IPaymaster.sol";
+import {Exec} from "account-abstraction-v0.8/utils/Exec.sol";
 
 /* solhint-disable avoid-low-level-calls */
 /* solhint-disable no-inline-assembly */
@@ -15,6 +17,11 @@ import {IAccountExecute} from "account-abstraction-v0.8/interfaces/IAccountExecu
 address constant SENDER_CREATOR = 0x449ED7C3e6Fee6a97311d4b55475DF59C44AdD33;
 
 contract EntryPointV8Simulation is EntryPoint {
+    bytes32 private constant INNER_OUT_OF_GAS = hex"deaddead";
+    bytes32 private constant INNER_REVERT_LOW_PREFUND = hex"deadaa51";
+
+    uint256 private constant REVERT_REASON_MAX_LEN = 2048;
+
     function senderCreator() public view virtual override returns (ISenderCreator) {
         return ISenderCreator(SENDER_CREATOR);
     }
@@ -35,7 +42,7 @@ contract EntryPointV8Simulation is EntryPoint {
             emit BeforeExecution();
 
             for (uint256 i = 0; i < opslen; i++) {
-                collected += _executeUserOp(i, userOps[i], opInfos[i]);
+                collected += _simulateExecuteUserOp(i, userOps[i], opInfos[i]);
             }
 
             _compensate(beneficiary, collected);
@@ -85,7 +92,7 @@ contract EntryPointV8Simulation is EntryPoint {
         _validatePaymasterPrepayment(0, userOp, outOpInfo);
     }
 
-    function executeUserOp(PackedUserOperation calldata userOp) external {
+    function validateAndExecuteUserOp(PackedUserOperation calldata userOp) external {
         (UserOpInfo memory outOpInfo) = validateAccountPrepayment(userOp);
 
         if (userOp.paymasterAndData.length > 0) {
@@ -117,6 +124,105 @@ contract EntryPointV8Simulation is EntryPoint {
                         revert(add(data, 32), mload(data))
                     }
                 }
+            }
+        }
+    }
+
+    function simulateInnerHandleOp(
+        bytes memory callData,
+        UserOpInfo memory opInfo,
+        bytes calldata context
+    ) external returns (uint256 actualGasCost) {
+        uint256 preGas = gasleft();
+        require(msg.sender == address(this), "AA92 internal call only");
+        MemoryUserOp memory mUserOp = opInfo.mUserOp;
+
+        IPaymaster.PostOpMode mode = IPaymaster.PostOpMode.opSucceeded;
+        if (callData.length > 0) {
+            bool success = Exec.call(mUserOp.sender, 0, callData, mUserOp.callGasLimit);
+            if (!success) {
+                uint256 freePtr = _getFreePtr();
+                bytes memory result = Exec.getReturnData(REVERT_REASON_MAX_LEN);
+                if (result.length > 0) {
+                    emit UserOperationRevertReason(
+                        opInfo.userOpHash, mUserOp.sender, mUserOp.nonce, result
+                    );
+                }
+                _restoreFreePtr(freePtr);
+                mode = IPaymaster.PostOpMode.opReverted;
+            }
+        }
+
+        unchecked {
+            uint256 actualGas = preGas - gasleft() + opInfo.preOpGas;
+            return _postExecution(mode, opInfo, context, actualGas);
+        }
+    }
+
+    function _simulateExecuteUserOp(
+        uint256 opIndex,
+        PackedUserOperation calldata userOp,
+        UserOpInfo memory opInfo
+    ) internal returns (uint256 collected) {
+        uint256 preGas = gasleft();
+        bytes memory context = _getMemoryBytesFromOffset(opInfo.contextOffset);
+        bool success;
+        {
+            uint256 saveFreePtr = _getFreePtr();
+            bytes calldata callData = userOp.callData;
+            bytes memory innerCall;
+            bytes4 methodSig;
+            assembly ("memory-safe") {
+                let len := callData.length
+                if gt(len, 3) { methodSig := calldataload(callData.offset) }
+            }
+            if (methodSig == IAccountExecute.executeUserOp.selector) {
+                bytes memory executeUserOp =
+                    abi.encodeCall(IAccountExecute.executeUserOp, (userOp, opInfo.userOpHash));
+                innerCall =
+                    abi.encodeCall(this.simulateInnerHandleOp, (executeUserOp, opInfo, context));
+            } else {
+                innerCall = abi.encodeCall(this.simulateInnerHandleOp, (callData, opInfo, context));
+            }
+            assembly ("memory-safe") {
+                success := call(gas(), address(), 0, add(innerCall, 0x20), mload(innerCall), 0, 32)
+                collected := mload(0)
+            }
+            _restoreFreePtr(saveFreePtr);
+        }
+        if (!success) {
+            bytes32 innerRevertCode;
+            assembly ("memory-safe") {
+                let len := returndatasize()
+                if eq(32, len) {
+                    returndatacopy(0, 0, 32)
+                    innerRevertCode := mload(0)
+                }
+            }
+            if (innerRevertCode == INNER_OUT_OF_GAS) {
+                // handleOps was called with gas limit too low. abort entire bundle.
+                // can only be caused by bundler (leaving not enough gas for inner call)
+                revert FailedOp(opIndex, "AA95 out of gas");
+            } else if (innerRevertCode == INNER_REVERT_LOW_PREFUND) {
+                // innerCall reverted on prefund too low. treat entire prefund as "gas cost"
+                uint256 actualGas = preGas - gasleft() + opInfo.preOpGas;
+                uint256 actualGasCost = opInfo.prefund;
+                _emitPrefundTooLow(opInfo);
+                _emitUserOperationEvent(opInfo, false, actualGasCost, actualGas);
+                collected = actualGasCost;
+            } else {
+                uint256 freePtr = _getFreePtr();
+                emit PostOpRevertReason(
+                    opInfo.userOpHash,
+                    opInfo.mUserOp.sender,
+                    opInfo.mUserOp.nonce,
+                    Exec.getReturnData(REVERT_REASON_MAX_LEN)
+                );
+                _restoreFreePtr(freePtr);
+
+                uint256 actualGas = preGas - gasleft() + opInfo.preOpGas;
+                collected =
+                    _postExecution(IPaymaster.PostOpMode.postOpReverted, opInfo, context, actualGas);
             }
         }
     }
