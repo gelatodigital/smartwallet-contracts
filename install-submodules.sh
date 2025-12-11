@@ -2,6 +2,9 @@
 
 git submodule update --init --recursive
 
+echo "Installing dependencies for account-abstraction-v0.9..."
+(cd lib/account-abstraction-v0.9 && yarn install)
+
 echo "Installing dependencies for account-abstraction-v0.8..."
 (cd lib/account-abstraction-v0.8 && yarn install)
 
